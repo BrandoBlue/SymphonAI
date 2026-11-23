@@ -1,9 +1,10 @@
-import { Band, GENRES, MODES } from './audio.js';
+import { GENRES, MODES } from './audio.js';
+import { createEngine } from './engines.js';
 import { Tracker, Conductor } from './tracker.js';
 
 const $ = (s) => document.querySelector(s);
 const canvas = $('#stage'), g = canvas.getContext('2d'), cam = $('#cam');
-const band = new Band(), tracker = new Tracker(), conductor = new Conductor();
+const band = createEngine(new URLSearchParams(location.search).get('engine') || 'procedural'), tracker = new Tracker(), conductor = new Conductor();
 const S = { screen: 'intro', mode: 'camera', genre: 'classical', mood: 'epic', wand: 'Baton', voice: true, guide: true, camOn: false,
   pointer: { x: 0.5, y: 0.5, down: false, last: 0 }, trail: [], parts: [], rings: [], qBeat: 0, qTime: 0, tipHint: 0, coached: {}, lastMove: 0 };
 let cw = 0, ch = 0, dpr = 1;
@@ -98,7 +99,7 @@ function askWand() {
     for (const [k, v] of Object.entries(GENRES)) if (t.includes(k) || t.includes(v.name.toLowerCase())) S.genre = k;
     if (/synth|electro|edm|techno|house|dance/.test(t)) S.genre = 'edm'; else if (/chill|lofi|lo-fi/.test(t)) S.genre = 'lofi'; else if (/film|epic|movie|trailer/.test(t)) S.genre = 'cinematic'; else if (/rock|guitar|metal/.test(t)) S.genre = 'rock'; else if (/jazz|swing|blues/.test(t)) S.genre = 'jazz'; else if (/orchestra|symphon|baroque/.test(t)) S.genre = 'classical';
     if (/dream|ambient|float/.test(t)) S.mood = 'dreamy'; else if (/dark|moody|sad|haunt/.test(t)) S.mood = 'dark'; else if (/happy|fun|upbeat|joy|sunny/.test(t)) S.mood = 'joyful'; else if (/epic|heroic|powerful/.test(t)) S.mood = 'epic';
-    band.setStyle(S.genre, S.mood); await band.start(); startPlay();
+    band.setStyle(S.genre, S.mood, { styleText: S.styleText, lyrics: S.lyrics, lyricText: S.lyricText }); await band.start(); startPlay();
   };
   say('Last step. Describe the style in your own words if you like, and choose lyrics, or none. Then raise your baton.');
 }

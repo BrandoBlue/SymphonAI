@@ -31,3 +31,9 @@ Current tracker is colour-based. Next: MediaPipe Tasks Vision (hand landmarks pl
 
 ## MCPs / services worth connecting
 Google Drive (reference audio, lyrics), GitHub (this repo). No music-specific MCP is needed for the prototype.
+
+## How hard is it for a CS student? (layered plan)
+1. **Done:** wand tracker + conducting detection + procedural band (this repo).
+2. **Weekend-level:** sampled instruments; MediaPipe hand/object detection; a Lyria RealTime engine through `src/engines.js`.
+3. **Course-project level:** record your own conducting sessions and train a small model (gesture features → tempo / dynamics / section controls). Fits in a notebook and runs on-device.
+4. **Research level:** fine-tune an open music model (MusicGen, Stable Audio Open, ACE-Step) so it responds to those controls, served from a GPU box and plugged in as another engine.

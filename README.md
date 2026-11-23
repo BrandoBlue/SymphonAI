@@ -10,5 +10,6 @@ Deploy the folder to any static host (GitHub Pages works) and use "Add to home s
 ## Layout
 - `src/audio.js` procedural band (6 genres, 4 moods)
 - `src/tracker.js` trainable object tracker + conducting detector
+- `src/engines.js` pluggable music-engine slot (contract documented inside; `?engine=<id>`)
 - `src/main.js` UI flow, voice guide, rendering
 - `docs/RECOMMENDATION.md` tool survey, AI music options, own-model feasibility
