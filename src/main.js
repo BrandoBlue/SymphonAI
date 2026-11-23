@@ -1,11 +1,11 @@
 import { GENRES, MODES } from './audio.js';
 import { createEngine } from './engines.js';
 import { Tracker, Conductor } from './tracker.js';
-import { HandTracker, MotionTracker } from './tracking.js';
+import { HandTracker, MotionTracker, PointTracker, ObjectSegmenter } from './tracking.js';
 
 const $ = (s) => document.querySelector(s);
 const canvas = $('#stage'), g = canvas.getContext('2d'), cam = $('#cam');
-const band = createEngine(new URLSearchParams(location.search).get('engine') || 'procedural'), tracker = new Tracker(), conductor = new Conductor(), hand = new HandTracker(), motion = new MotionTracker();
+const band = createEngine(new URLSearchParams(location.search).get('engine') || 'procedural'), tracker = new Tracker(), conductor = new Conductor(), hand = new HandTracker(), motion = new MotionTracker(), point = new PointTracker(), seg = new ObjectSegmenter();
 const S = { screen: 'intro', mode: 'camera', method: 'hand', found: false, lastFound: 0, hand: null, genre: 'classical', mood: 'epic', wand: 'Baton', voice: true, guide: true, camOn: false,
   pointer: { x: 0.5, y: 0.5, down: false, last: 0 }, trail: [], parts: [], rings: [], qBeat: 0, qTime: 0, tipHint: 0, coached: {}, lastMove: 0 };
 let cw = 0, ch = 0, dpr = 1;
@@ -119,8 +119,8 @@ async function startLock() {
   show('train'); S.trained = 0; tracker.target = null; $('#trainBox').hidden = false;
   $('#trainMsg').textContent = 'Starting camera…';
   try {
-    if (!cam.srcObject) { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }); cam.srcObject = stream; }
-    await cam.play(); S.camOn = true; hand.init().catch(() => {});
+    if (!cam.srcObject) { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }); cam.srcObject = stream; }
+    await cam.play(); S.camOn = true; hand.init().catch(() => {}); seg.init().catch(() => {});
     $('#trainMsg').textContent = 'Camera ready. Hold your tool up and name it below.';
     say('Step in front of the camera. Tell me what you are conducting with, then press start tracking.');
   } catch (e) {
@@ -136,11 +136,11 @@ canvas.addEventListener('pointerdown', (e) => {
   S.pointer.down = true; setPointer(e);
   if (S.screen === 'calib' && S.method === 'color' && S.arming) {
     const n = toNorm(e.clientX, e.clientY);
-    tracker.grab(cam);
-    const thin = /pencil|pen|chopstick|stick|wand|baton|brush/.test(S.objName || '');
-    tracker.minPix = thin ? 3 : 6; tracker.setSensitivity(thin ? 0.4 : 0.35);
-    const c = tracker.train(Math.min(1, Math.max(0, n.x)), Math.min(1, Math.max(0, n.y)));
-    S.trainColor = `rgb(${c.map(Math.round).join(',')})`; S.arming = false; CAL.reset();
+    const tx = Math.min(1, Math.max(0, n.x)), ty = Math.min(1, Math.max(0, n.y));
+    point.grab(cam); const obj = seg.ready ? seg.segment(cam, tx, ty, point.W, point.H) : null; point.train(tx, ty, obj);
+    S.segOk = !!obj; toast(obj ? 'Smart Tool Detection found your whole ' + obj_() + ' (green). Now wave it.' : 'Locked on the tapped spot. Wave it.', 4000);
+    point.setSensitivity(+$('#sens').value);
+    S.arming = false; CAL.reset();
     say('Learned it. Now wave it up and down.');
   }
 });
@@ -153,7 +153,7 @@ $('#calSkip').onclick = () => { S.mode = 'pointer'; startPick(); };
 // ---------- calibration: prove tracking works before conducting ----------
 const CAL = { cond: new Conductor(), beats: 0, seen: 0, frames: 0, confirmed: false, t0: 0, warned: false,
   reset() { this.cond.reset(); this.beats = 0; this.seen = 0; this.frames = 0; this.confirmed = false; this.t0 = performance.now(); this.warned = false; ui(); } };
-const obj = () => S.objName || 'baton';
+const obj = () => S.objName || 'baton'; const obj_ = obj;
 function ui() {
   $('#ckSee').classList.toggle('ok', CAL.seen > 6); $('#ckSee b').textContent = CAL.seen > 6 ? '✓' : '○';
   $('#ckWave').classList.toggle('ok', CAL.confirmed); $('#ckWave b').textContent = CAL.confirmed ? '✓' : '○';
@@ -173,7 +173,7 @@ function setMethod(mth, silent) {
     if (!hand.ready) hand.init().then(() => { if (S.method === 'hand') $('#calMsg').textContent = `Hold your ${o} and wave it up and down.`; })
       .catch(() => { toast('Hand tracking could not load here. Switched to Motion.', 5000); if (S.method === 'hand') setMethod('motion'); });
   } else if (mth === 'motion') $('#calMsg').textContent = `Step back so your arm is in view, then wave your ${o} up and down.`;
-  else { S.arming = true; tracker.target = null; $('#calMsg').innerHTML = `Tap the <b>tip of your ${o}</b> on the screen.`; }
+  else { S.arming = true; point.ready = false; $('#calMsg').innerHTML = `Smart Tool Detection: tap the <b>tip of your ${o}</b>. I'll find the whole thing.`; }
   if (!silent) say($('#calMsg').textContent);
 }
 document.querySelectorAll('#seg button').forEach((b) => (b.onclick = () => setMethod(b.dataset.m)));
@@ -181,7 +181,7 @@ $('#calGo').onclick = () => { say('Great. Now let us choose what to make.'); sta
 function calibrate(now) {
   const p = trackFrame(now);
   S.wandPos = p; CAL.frames++;
-  if (p) { CAL.seen++; const r = CAL.cond.push(p, now / 1000); if (r.beat) CAL.beats++; } else CAL.cond.lastPos = null;
+  if (p) { if (S.real) CAL.seen++; const r = CAL.cond.push(p, now / 1000); if (r.beat) CAL.beats++; } else CAL.cond.lastPos = null;
   const seeRate = CAL.seen / Math.max(1, CAL.frames);
   if (!CAL.confirmed && CAL.beats >= 3 && seeRate > 0.4) { CAL.confirmed = true; $('#calMsg').textContent = 'Tracking confirmed. I can follow you.'; say('Tracking confirmed. I can follow you.'); }
   if (!CAL.warned && !CAL.confirmed && now - CAL.t0 > 7000 && CAL.seen < 15 && !(S.method === 'hand' && !hand.ready) && !(S.method === 'color' && S.arming)) {
@@ -196,8 +196,11 @@ function trackFrame(now) {
   let p = null;
   if (S.method === 'hand') { const r = hand.detect(cam); S.hand = r ? r.lm : null; p = r ? { x: r.x, y: r.y } : null; }
   else if (S.method === 'motion') p = motion.step(cam);
-  else { tracker.grab(cam); p = tracker.target ? tracker.step() : null; }
-  if (p) { S.found = true; S.lastFound = now; } else S.found = false;
+  else { point.grab(cam); p = point.ready ? point.step(cam, seg) : null; }
+  S.real = !!p;
+  if (p) { S.found = true; S.lastFound = now; S.lastP = p; }
+  else if (S.lastP && now - S.lastFound < 450) p = { ...S.lastP }; // ride out brief dropouts
+  else S.found = false;
   return p;
 }
 
@@ -210,7 +213,7 @@ function startPlay() {
   band.onStep = (step) => { if (step % 4 === 0) { S.qBeat = step / 4; S.qTime = band.ctx.currentTime; } };
   $('.sens').style.display = S.mode === 'camera' && S.method === 'color' ? '' : 'none';
 }
-$('#sens').oninput = (e) => tracker.setSensitivity(+e.target.value);
+$('#sens').oninput = (e) => point.setSensitivity(+e.target.value);
 // ---------- record & share ----------
 let rec = null, chunks = [];
 function toast(html, ms = 12000) { const t = $('#toast'); t.innerHTML = html; t.style.display = 'flex'; clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = 'none'), ms); return t; }
@@ -332,7 +335,8 @@ function drawFx(dt, now) {
   }
   // training: show tracked blob + ring
   if (S.hand && (S.screen === 'calib' || S.screen === 'play')) drawHand();
-  if (S.screen === 'calib' && S.method === 'color' && tracker.target && tracker.pos) { const s = toScreen(tracker.pos); g.strokeStyle = S.trainColor || '#fff'; g.lineWidth = 4; g.beginPath(); g.arc(s.x, s.y, 26 + 6 * Math.sin(now / 150), 0, 6.283); g.stroke(); }
+  if (S.screen === 'calib' && S.method === 'color' && point.ready && point.pos) { const s = toScreen(point.pos); g.strokeStyle = point.found ? '#5cf29a' : '#ff5d8f'; g.lineWidth = 4; g.beginPath(); g.arc(s.x, s.y, 26 + 6 * Math.sin(now / 150), 0, 6.283); g.stroke();
+    if (point.segmented) { const v = view(), k = v.w / point.W; g.imageSmoothingEnabled = false; g.drawImage(point.maskCanvas, v.x + (point.cx_ - point.pw / 2) * k, v.y + (point.cy_ - point.ph / 2) * (v.h / point.H), point.pw * k, point.ph * (v.h / point.H)); } }
   // rings & particles
   S.rings = S.rings.filter((r) => r.a > 0.02);
   for (const r of S.rings) { r.r += 480 * dt; r.a *= 0.92; g.strokeStyle = `rgba(245,199,107,${r.a})`; g.lineWidth = 3; g.beginPath(); g.arc(r.x, r.y, r.r, 0, 6.283); g.stroke(); }
@@ -369,4 +373,4 @@ function drawHand() {
 }
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
-window.__symphonai = { S, band, tracker, conductor, hand, motion };
+window.__symphonai = { S, band, tracker, point, conductor, hand, motion, seg };
