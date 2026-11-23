@@ -1,11 +1,12 @@
 import { GENRES, MODES } from './audio.js';
 import { createEngine } from './engines.js';
 import { Tracker, Conductor } from './tracker.js';
+import { HandTracker, MotionTracker } from './tracking.js';
 
 const $ = (s) => document.querySelector(s);
 const canvas = $('#stage'), g = canvas.getContext('2d'), cam = $('#cam');
-const band = createEngine(new URLSearchParams(location.search).get('engine') || 'procedural'), tracker = new Tracker(), conductor = new Conductor();
-const S = { screen: 'intro', mode: 'camera', genre: 'classical', mood: 'epic', wand: 'Baton', voice: true, guide: true, camOn: false,
+const band = createEngine(new URLSearchParams(location.search).get('engine') || 'procedural'), tracker = new Tracker(), conductor = new Conductor(), hand = new HandTracker(), motion = new MotionTracker();
+const S = { screen: 'intro', mode: 'camera', method: 'hand', found: false, lastFound: 0, hand: null, genre: 'classical', mood: 'epic', wand: 'Baton', voice: true, guide: true, camOn: false,
   pointer: { x: 0.5, y: 0.5, down: false, last: 0 }, trail: [], parts: [], rings: [], qBeat: 0, qTime: 0, tipHint: 0, coached: {}, lastMove: 0 };
 let cw = 0, ch = 0, dpr = 1;
 
@@ -30,7 +31,15 @@ const toNorm = (px, py) => { const v = view(); return { x: (px - v.x) / v.w, y: 
 function show(id) {
   S.screen = id;
   document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('active', e.id === id));
+  $('#back').hidden = !['train', 'calib', 'pick'].includes(id);
 }
+// Back button: always step back one stage
+$('#back').onclick = () => {
+  speechSynthesis?.cancel();
+  if (S.screen === 'pick') { if (stepNo > 1) stepTo(stepNo - 1); else if (S.mode === 'camera') startCalib(); else show('intro'); }
+  else if (S.screen === 'calib') { S.arming = false; show('train'); $('#trainBox').hidden = false; $('#trainMsg').textContent = 'Camera ready. Hold your tool up and name it below.'; }
+  else if (S.screen === 'train') show('intro');
+};
 
 // ---------- voice guide ----------
 let recog = null;
@@ -111,7 +120,7 @@ async function startLock() {
   $('#trainMsg').textContent = 'Starting camera…';
   try {
     if (!cam.srcObject) { const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }); cam.srcObject = stream; }
-    await cam.play(); S.camOn = true;
+    await cam.play(); S.camOn = true; hand.init().catch(() => {});
     $('#trainMsg').textContent = 'Camera ready. Hold your tool up and name it below.';
     say('Step in front of the camera. Tell me what you are conducting with, then press start tracking.');
   } catch (e) {
@@ -122,28 +131,75 @@ $('#objName').addEventListener('input', (e) => {
   const v = e.target.value.toLowerCase(); S.objName = v;
   $('#objTips').textContent = /pencil|pen|chopstick|stick|wand|baton|brush|drumstick/.test(v) ? TIPS.thin : TIPS.default;
 });
-$('#startTrack').onclick = () => {
-  const thin = /pencil|pen|chopstick|stick|wand|baton|brush/.test(S.objName || '');
-  tracker.minPix = thin ? 3 : 6; if (thin) { $('#sens').value = 0.55; }
-  S.arming = true; $('#trainBox').hidden = true;
-  $('#trainMsg').innerHTML = `Hold up your <b>${S.objName || 'tool'}</b> and <b>tap its tip</b> on the screen.`;
-  say(`Hold up your ${S.objName || 'tool'} and tap the tip on the screen. I will learn to follow it.`);
-};
+$('#startTrack').onclick = () => startCalib();
 canvas.addEventListener('pointerdown', (e) => {
   S.pointer.down = true; setPointer(e);
-  if (S.screen === 'train' && S.mode === 'camera' && S.arming) {
+  if (S.screen === 'calib' && S.method === 'color' && S.arming) {
     const n = toNorm(e.clientX, e.clientY);
-    tracker.grab(cam); const c = tracker.train(Math.min(1, Math.max(0, n.x)), Math.min(1, Math.max(0, n.y)));
-    S.trainColor = `rgb(${c.map(Math.round).join(',')})`; S.trained = performance.now();
-    $('#trainMsg').textContent = 'Got it! Watching it now…';
-    S.arming = false; say('Locked in. Now let us choose what to make.');
-    setTimeout(startPick, 900);
+    tracker.grab(cam);
+    const thin = /pencil|pen|chopstick|stick|wand|baton|brush/.test(S.objName || '');
+    tracker.minPix = thin ? 3 : 6; tracker.setSensitivity(thin ? 0.4 : 0.35);
+    const c = tracker.train(Math.min(1, Math.max(0, n.x)), Math.min(1, Math.max(0, n.y)));
+    S.trainColor = `rgb(${c.map(Math.round).join(',')})`; S.arming = false; CAL.reset();
+    say('Learned it. Now wave it up and down.');
   }
 });
 addEventListener('pointerup', () => (S.pointer.down = false));
 canvas.addEventListener('pointermove', setPointer);
 function setPointer(e) { S.pointer.x = e.clientX / cw; S.pointer.y = e.clientY / ch; S.pointer.last = performance.now(); }
 $('#skipTrain').onclick = () => { S.mode = 'pointer'; startPick(); };
+$('#calSkip').onclick = () => { S.mode = 'pointer'; startPick(); };
+
+// ---------- calibration: prove tracking works before conducting ----------
+const CAL = { cond: new Conductor(), beats: 0, seen: 0, frames: 0, confirmed: false, t0: 0, warned: false,
+  reset() { this.cond.reset(); this.beats = 0; this.seen = 0; this.frames = 0; this.confirmed = false; this.t0 = performance.now(); this.warned = false; ui(); } };
+const obj = () => S.objName || 'baton';
+function ui() {
+  $('#ckSee').classList.toggle('ok', CAL.seen > 6); $('#ckSee b').textContent = CAL.seen > 6 ? '✓' : '○';
+  $('#ckWave').classList.toggle('ok', CAL.confirmed); $('#ckWave b').textContent = CAL.confirmed ? '✓' : '○';
+  $('#ckN').textContent = Math.min(CAL.beats, 3);
+  const go = $('#calGo'); go.disabled = !CAL.confirmed; go.textContent = CAL.confirmed ? 'Tracking confirmed. Continue' : 'Waiting for tracking…';
+  $('#calMsg').classList.toggle('good', CAL.confirmed);
+}
+function startCalib() {
+  show('calib'); S.arming = false; setMethod(S.method, true); CAL.reset();
+}
+function setMethod(mth, silent) {
+  S.method = mth; document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.m === mth));
+  CAL.reset(); motion.reset(); S.wandPos = null; S.hand = null;
+  const o = obj();
+  if (mth === 'hand') {
+    $('#calMsg').textContent = hand.ready ? `Hold your ${o} and wave it up and down.` : 'Loading hand tracking…';
+    if (!hand.ready) hand.init().then(() => { if (S.method === 'hand') $('#calMsg').textContent = `Hold your ${o} and wave it up and down.`; })
+      .catch(() => { toast('Hand tracking could not load here. Switched to Motion.', 5000); if (S.method === 'hand') setMethod('motion'); });
+  } else if (mth === 'motion') $('#calMsg').textContent = `Step back so your arm is in view, then wave your ${o} up and down.`;
+  else { S.arming = true; tracker.target = null; $('#calMsg').innerHTML = `Tap the <b>tip of your ${o}</b> on the screen.`; }
+  if (!silent) say($('#calMsg').textContent);
+}
+document.querySelectorAll('#seg button').forEach((b) => (b.onclick = () => setMethod(b.dataset.m)));
+$('#calGo').onclick = () => { say('Great. Now let us choose what to make.'); startPick(); };
+function calibrate(now) {
+  const p = trackFrame(now);
+  S.wandPos = p; CAL.frames++;
+  if (p) { CAL.seen++; const r = CAL.cond.push(p, now / 1000); if (r.beat) CAL.beats++; } else CAL.cond.lastPos = null;
+  const seeRate = CAL.seen / Math.max(1, CAL.frames);
+  if (!CAL.confirmed && CAL.beats >= 3 && seeRate > 0.4) { CAL.confirmed = true; $('#calMsg').textContent = 'Tracking confirmed. I can follow you.'; say('Tracking confirmed. I can follow you.'); }
+  if (!CAL.warned && !CAL.confirmed && now - CAL.t0 > 7000 && CAL.seen < 15 && !(S.method === 'hand' && !hand.ready) && !(S.method === 'color' && S.arming)) {
+    CAL.warned = true; const tip = S.method === 'hand' ? 'I cannot see your hand. Step back so your hand is in frame, or try Motion.' : S.method === 'color' ? 'I lost it. Tap the tip again, or try Hand tracking.' : 'I see no movement. Wave bigger, or try Hand tracking.';
+    $('#calMsg').textContent = tip; say(tip);
+  }
+  if (!CAL.confirmed && !CAL.warned) { /* keep instruction */ }
+  if (CAL.frames % 6 === 0) ui();
+}
+function trackFrame(now) {
+  if (S.mode !== 'camera' || !S.camOn || cam.readyState < 2) return null;
+  let p = null;
+  if (S.method === 'hand') { const r = hand.detect(cam); S.hand = r ? r.lm : null; p = r ? { x: r.x, y: r.y } : null; }
+  else if (S.method === 'motion') p = motion.step(cam);
+  else { tracker.grab(cam); p = tracker.target ? tracker.step() : null; }
+  if (p) { S.found = true; S.lastFound = now; } else S.found = false;
+  return p;
+}
 
 // ---------- play ----------
 function startPlay() {
@@ -152,8 +208,7 @@ function startPlay() {
   $('#hint').classList.remove('hide');
   $('#hint').textContent = S.mode === 'camera' ? 'Raise your ' + (S.objName || 'baton') + ' and give a downbeat…' : 'Drag your finger like a baton — down for each beat…';
   band.onStep = (step) => { if (step % 4 === 0) { S.qBeat = step / 4; S.qTime = band.ctx.currentTime; } };
-  tracker.setSensitivity(+$('#sens').value);
-  if (S.mode === 'pointer') $('.sens', document).style.display = 'none'; else $('.sens').style.display = '';
+  $('.sens').style.display = S.mode === 'camera' && S.method === 'color' ? '' : 'none';
 }
 $('#sens').oninput = (e) => tracker.setSensitivity(+e.target.value);
 // ---------- record & share ----------
@@ -179,7 +234,7 @@ $('#bRec').onclick = (e) => {
 };
 $('#bGuide').onclick = (e) => { S.guide = !S.guide; e.currentTarget.classList.toggle('off', !S.guide); };
 $('#bVoice').onclick = (e) => { S.voice = !S.voice; e.currentTarget.classList.toggle('off', !S.voice); if (!S.voice) speechSynthesis?.cancel(); };
-$('#bRetrain').onclick = () => { if (S.mode === 'camera') { S.arming = true; tracker.target = null; show('train'); $('#trainBox').hidden = true; $('#trainMsg').innerHTML = 'Tap the tip of your tool.'; } };
+$('#bRetrain').onclick = () => { if (S.mode === 'camera') startCalib(); };
 $('#bStyle').onclick = () => { startPick(); };
 $('#begin').onclick = async () => { S.mode = 'camera'; await band.start(); startLock(); };
 $('#demo').onclick = async () => { S.mode = 'pointer'; await band.start(); startPick(); };
@@ -196,13 +251,13 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
   drawBackground(now);
-  if (S.screen === 'train' && S.camOn) { tracker.grab(cam); if (S.arming) { /* keep fresh frame for tap sampling */ } }
+  if (S.screen === 'calib') calibrate(now);
   if (S.screen === 'play') conduct(now, dt);
   drawFx(dt, now);
 }
 function conduct(now, dt) {
   let p = null;
-  if (S.mode === 'camera' && S.camOn && tracker.target) { tracker.grab(cam); p = tracker.step(); }
+  if (S.mode === 'camera' && S.camOn) p = trackFrame(now);
   else if (S.mode === 'pointer' && now - S.pointer.last < 350) p = { x: S.pointer.x, y: S.pointer.y };
   let beat = false;
   if (p) { const r = conductor.push(p, now / 1000); beat = r.beat; S.lastMove = now; S.wandPos = p; }
@@ -224,7 +279,7 @@ function conduct(now, dt) {
   // coaching + idle hint
   const idle = now - S.lastMove > 3500;
   if (idle && S.lastMove) { $('#hint').classList.remove('hide'); $('#hint').textContent = 'Raise your baton — I\'m waiting for you…'; }
-  if (S.mode === 'camera' && tracker.target && !tracker.found && now - S.playStart > 2500) { $('#hint').classList.remove('hide'); $('#hint').textContent = 'I lost your baton — hold it up, or tap 🎯 to pick it again.'; }
+  if (S.mode === 'camera' && !S.found && now - Math.max(S.lastFound, S.playStart) > 2500) { $('#hint').classList.remove('hide'); $('#hint').textContent = 'I lost track of you. Hold your ' + obj() + ' in view, or tap 🎯 to recalibrate.'; }
   coach('big', 'Bigger movements make it louder. Smaller, softer.', 14000);
   coach('sway', 'Sway toward the left for strings, the middle for melody, the right for rhythm.', 26000);
   coach('hi', 'Lift your baton higher for a brighter sound.', 42000);
@@ -238,10 +293,10 @@ function burst(x, y, n, k) {
 function drawBackground(now) {
   const t = now / 1000, d = band.dynamics;
   g.fillStyle = '#07050c'; g.fillRect(0, 0, cw, ch);
-  if (S.camOn && cam.videoWidth && (S.screen === 'train' || S.screen === 'play')) {
+  if (S.camOn && cam.videoWidth && (S.screen === 'train' || S.screen === 'calib' || S.screen === 'play')) {
     const v = view(); g.save(); g.translate(v.x + v.w, v.y); g.scale(-1, 1);
-    g.globalAlpha = S.screen === 'train' ? 0.95 : 0.55; g.drawImage(cam, 0, 0, v.w, v.h); g.restore();
-    g.fillStyle = `rgba(7,5,12,${S.screen === 'train' ? 0.1 : 0.35})`; g.fillRect(0, 0, cw, ch);
+    g.globalAlpha = S.screen === 'play' ? 0.55 : 0.95; g.drawImage(cam, 0, 0, v.w, v.h); g.restore();
+    g.fillStyle = `rgba(7,5,12,${S.screen === 'play' ? 0.35 : 0.1})`; g.fillRect(0, 0, cw, ch);
   } else {
     // living stage: aurora ribbons that breathe with the music
     for (let i = 0; i < 3; i++) {
@@ -276,7 +331,8 @@ function drawFx(dt, now) {
     g.fillStyle = gr; g.beginPath(); g.arc(s.x, s.y, r * 2.6, 0, 6.283); g.fill();
   }
   // training: show tracked blob + ring
-  if (S.screen === 'train' && tracker.target && tracker.pos) { const s = toScreen(tracker.pos); g.strokeStyle = S.trainColor || '#fff'; g.lineWidth = 4; g.beginPath(); g.arc(s.x, s.y, 26 + 6 * Math.sin(now / 150), 0, 6.283); g.stroke(); }
+  if (S.hand && (S.screen === 'calib' || S.screen === 'play')) drawHand();
+  if (S.screen === 'calib' && S.method === 'color' && tracker.target && tracker.pos) { const s = toScreen(tracker.pos); g.strokeStyle = S.trainColor || '#fff'; g.lineWidth = 4; g.beginPath(); g.arc(s.x, s.y, 26 + 6 * Math.sin(now / 150), 0, 6.283); g.stroke(); }
   // rings & particles
   S.rings = S.rings.filter((r) => r.a > 0.02);
   for (const r of S.rings) { r.r += 480 * dt; r.a *= 0.92; g.strokeStyle = `rgba(245,199,107,${r.a})`; g.lineWidth = 3; g.beginPath(); g.arc(r.x, r.y, r.r, 0, 6.283); g.stroke(); }
@@ -305,6 +361,12 @@ function drawGuide(now) {
   }
   g.restore();
 }
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function drawHand() {
+  const pts = S.hand.map(toScreen); g.save(); g.strokeStyle = 'rgba(245,199,107,.7)'; g.lineWidth = 2;
+  g.beginPath(); for (const [a, b] of BONES) { g.moveTo(pts[a].x, pts[a].y); g.lineTo(pts[b].x, pts[b].y); } g.stroke();
+  g.fillStyle = '#fff'; for (const p of pts) { g.beginPath(); g.arc(p.x, p.y, 3, 0, 6.283); g.fill(); } g.restore();
+}
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
-window.__symphonai = { S, band, tracker, conductor };
+window.__symphonai = { S, band, tracker, conductor, hand, motion };

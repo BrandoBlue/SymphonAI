@@ -23,6 +23,27 @@
   </div>
 </section>
 
+<section id="calib" class="screen">
+  <div class="scanframe"><i></i><i></i><i></i><i></i></div>
+  <div class="banner"><div id="calMsg">Setting up tracking…</div></div>
+  <div class="bottom col">
+    <div class="trainbox">
+      <label>Tracking method</label>
+      <div class="seg" id="seg">
+        <button data-m="hand" class="on">🖐 Hand <small>best</small></button>
+        <button data-m="motion">〰 Motion</button>
+        <button data-m="color">🎯 Colour</button>
+      </div>
+      <ul class="checks" id="checks">
+        <li id="ckSee"><b>○</b> I can see you</li>
+        <li id="ckWave"><b>○</b> Wave up and down: <span id="ckN">0</span>/3 beats</li>
+      </ul>
+      <button id="calGo" class="cta" disabled>Waiting for tracking…</button>
+    </div>
+    <button id="calSkip" class="ghost">Use finger / mouse instead</button>
+  </div>
+</section>
+
 <section id="pick" class="screen">
   <div class="card wide">
     <div class="voice"><span class="dot"></span><span id="said">…</span><button id="mic" class="mini" title="Answer by voice">🎤</button></div>
@@ -80,6 +101,7 @@
 </section>
 
 <div id="toast"></div>
+<button id="back" class="backbtn" hidden>← Back</button>
 <video id="cam" playsinline muted autoplay></video>
 <script type="module" src="src/main.js"></script>
 </body>
