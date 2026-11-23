@@ -67,3 +67,7 @@ textarea.field{resize:none;margin-top:12px}
 .scanframe::after{content:"";position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:scan 2.4s ease-in-out infinite}
 @keyframes scan{0%{top:0}50%{top:100%}100%{top:0}}
 @media (max-width:640px){.hud.top{flex-wrap:wrap;gap:8px}.hud .btns{margin-left:auto}.pill{font-size:12px}}
+
+.mini.rec{background:#c0173f;animation:blink 1.2s infinite}@keyframes blink{50%{opacity:.55}}
+#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--glass);backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:16px;padding:12px 18px;display:none;gap:12px;align-items:center;z-index:9}
+#toast a,#toast button{color:var(--gold);background:none;border:0;font-weight:700;text-decoration:underline}

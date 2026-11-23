@@ -156,6 +156,27 @@ function startPlay() {
   if (S.mode === 'pointer') $('.sens', document).style.display = 'none'; else $('.sens').style.display = '';
 }
 $('#sens').oninput = (e) => tracker.setSensitivity(+e.target.value);
+// ---------- record & share ----------
+let rec = null, chunks = [];
+function toast(html, ms = 12000) { const t = $('#toast'); t.innerHTML = html; t.style.display = 'flex'; clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = 'none'), ms); return t; }
+$('#bRec').onclick = (e) => {
+  const btn = e.currentTarget;
+  if (rec && rec.state === 'recording') { rec.stop(); return; }
+  if (!canvas.captureStream || !window.MediaRecorder || !band.audioStream) { toast('Recording is not supported in this browser.', 4000); return; }
+  const ms = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...band.audioStream().getAudioTracks()]);
+  const type = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t));
+  chunks = []; rec = new MediaRecorder(ms, type ? { mimeType: type, videoBitsPerSecond: 4e6 } : {});
+  rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+  rec.onstop = () => {
+    btn.classList.remove('rec');
+    const blob = new Blob(chunks, { type: rec.mimeType || 'video/webm' }), url = URL.createObjectURL(blob), ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const file = new File([blob], `symphonai-${Date.now()}.${ext}`, { type: blob.type });
+    const t = toast(`Saved your performance. <a href="${url}" download="${file.name}">Download</a> <button id="shareBtn">Share</button>`, 30000);
+    const sb = t.querySelector('#shareBtn');
+    if (navigator.canShare && navigator.canShare({ files: [file] })) sb.onclick = () => navigator.share({ files: [file], title: 'My SymphonAI performance' }).catch(() => {}); else sb.remove();
+  };
+  rec.start(1000); btn.classList.add('rec'); toast('Recording… tap ⏺ again to stop.', 3000);
+};
 $('#bGuide').onclick = (e) => { S.guide = !S.guide; e.currentTarget.classList.toggle('off', !S.guide); };
 $('#bVoice').onclick = (e) => { S.voice = !S.voice; e.currentTarget.classList.toggle('off', !S.voice); if (!S.voice) speechSynthesis?.cancel(); };
 $('#bRetrain').onclick = () => { if (S.mode === 'camera') { S.arming = true; tracker.target = null; show('train'); $('#trainBox').hidden = true; $('#trainMsg').innerHTML = 'Tap the tip of your tool.'; } };

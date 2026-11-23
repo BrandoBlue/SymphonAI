@@ -72,6 +72,10 @@ export class Band {
       this.timer = setInterval(() => this._schedule(), 25);
     }
   }
+  audioStream() { // for recording: tap the final mix
+    if (!this.recDest) { this.recDest = this.ctx.createMediaStreamDestination(); this.comp.connect(this.recDest); }
+    return this.recDest.stream;
+  }
   stop() { this.running = false; clearInterval(this.timer); if (this.master) this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1); }
   setStyle(genre, mode) {
     this.genre = genre; this.mode = mode;
