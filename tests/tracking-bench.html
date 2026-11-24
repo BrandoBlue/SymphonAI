@@ -1,5 +1,5 @@
-<!doctype html><canvas id=v width=1280 height=720></canvas><script type=module>
-import { ObjectSegmenter, PointTracker } from '../src/tracking.js';
+<!doctype html><base href="/"><canvas id=v width=1280 height=720></canvas><script type=module>
+import { ObjectSegmenter, PointTracker } from '/src/tracking.js';
 const cv=document.getElementById('v'), c=cv.getContext('2d'); cv.videoWidth=1280; cv.videoHeight=720;
 let seed=7; const rnd=()=> (seed=(seed*16807)%2147483647)/2147483647;
 const bg=document.createElement('canvas'); bg.width=1280; bg.height=720; { const b=bg.getContext('2d'); b.fillStyle='#d8d2c4'; b.fillRect(0,0,1280,720); b.fillStyle='#8a6d4b'; b.fillRect(0,500,1280,220); for(let i=0;i<40;i++){ b.fillStyle=`hsl(${rnd()*360},25%,${40+rnd()*35}%)`; b.fillRect(rnd()*1280,rnd()*720,30+rnd()*60,30+rnd()*60); }
