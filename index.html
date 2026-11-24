@@ -275,6 +275,8 @@ function draw(t){
     cx.beginPath();cx.moveTo(tr[i-1].x,tr[i-1].y);cx.lineTo(tr[i].x,tr[i].y);cx.stroke()}
   if(tr.length){const p=tr[tr.length-1];cx.fillStyle=S.th.on&&S.mode==='theremin'?'#ff6f59':'#2fe6c8';
     cx.shadowColor=cx.fillStyle;cx.shadowBlur=20*dpr;cx.beginPath();cx.arc(p.x,p.y,8*dpr,0,7);cx.fill();cx.shadowBlur=0}
+  if(DEBUG&&crop.width){const w=W*.35,h=w*crop.height/crop.width;cx.drawImage(crop,8*dpr,H-h-110*dpr,w,h);
+    cx.strokeStyle='#ff6f59';cx.lineWidth=2*dpr;cx.strokeRect(8*dpr,H-h-110*dpr,w,h)}
   S.rings=S.rings.filter(r=>t-r.t<500);
   for(const r of S.rings){const k=(t-r.t)/500;
     cx.strokeStyle=`rgba(255,111,89,${1-k})`;cx.lineWidth=(r.down?6:3)*dpr;
@@ -284,6 +286,7 @@ function draw(t){
 
 // Hand finder: the model shrinks each image to ~200px, so a hand across the room is too small to see.
 // We crop around where the hand was, try the full frame, and otherwise scan zoomed-in windows.
+const DEBUG=/[?&]debug=1/.test(location.search);
 const crop=document.createElement('canvas'),ccx=crop.getContext('2d');
 const T={pos:null,span:0,misses:0,scan:0};
 function tryCrop(x,y,w,h){
@@ -345,12 +348,13 @@ $('go').onclick=async()=>{
     // time a few detections and keep whichever engine is faster on this phone
     const probe=document.createElement('canvas');probe.width=320;probe.height=180;probe.getContext('2d').fillRect(0,0,320,180);
     const speed=l=>{l.detect(probe);const t0=performance.now();for(let i=0;i<4;i++)l.detect(probe);return (performance.now()-t0)/4};
-    let gpu=null,cpu=null,gms=1e9,cms=1e9;
-    try{gpu=await timeout(V.HandLandmarker.createFromOptions(fs,opts('GPU')),15000);gms=speed(gpu)}catch(e){console.warn('GPU tracker failed',e)}
-    if(gms>25){status('Checking which tracker is faster…');
-      try{cpu=await timeout(V.HandLandmarker.createFromOptions(fs,opts('CPU')),30000);cms=speed(cpu)}catch(e){console.warn('CPU tracker failed',e)}}
-    if(!gpu&&!cpu)throw new Error('hand tracker could not start on this device');
-    if(cms<gms){S.landmarker=cpu;S.delegate='CPU';gpu&&gpu.close()}else{S.landmarker=gpu;S.delegate='GPU';cpu&&cpu.close()}
+    // CPU is the default: it is fast on modern phones and the GPU path finds no hands on some Android GPUs.
+    // Add ?gpu=1 to the URL to try the GPU path instead.
+    const wantGPU=/[?&]gpu=1/.test(location.search);let gms=0,cms=0;
+    const make=async d=>{const l=await timeout(V.HandLandmarker.createFromOptions(fs,opts(d)),30000);return l};
+    try{S.landmarker=await make(wantGPU?'GPU':'CPU');S.delegate=wantGPU?'GPU':'CPU'}
+    catch(e){console.warn(e);status('Trying the other tracker engine…');S.landmarker=await make(wantGPU?'CPU':'GPU');S.delegate=wantGPU?'CPU':'GPU'}
+    gms=cms=speed(S.landmarker);
     S.ms=Math.round(Math.min(gms,cms));
     $('intro').hidden=true;$('chip').hidden=false;$('top').hidden=false;$('bottom').hidden=false;
     setHint('Raise your hand and flick down to start');
