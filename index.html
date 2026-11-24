@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#07050c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>SymphonAI — conduct with a wave</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<section id="intro" class="screen active">
+  <div class="card hero">
+    <div class="logo">Symphon<b>AI</b></div>
+    <p class="tag">Wave a pen. Conduct an orchestra.<br>Any genre. Your motion is the music.</p>
+    <button id="begin" class="cta">Lock in conducting tool</button>
+    <button id="demo" class="ghost">Try without camera (use finger / mouse)</button>
+    <p class="fine">Audio plays through whatever speaker your phone is connected to — pair your Bluetooth speaker first.</p>
+  </div>
+</section>
+
+<section id="calib" class="screen">
+  <div class="scanframe"><i></i><i></i><i></i><i></i></div>
+  <div class="banner"><div id="calMsg">Setting up tracking…</div></div>
+  <div class="bottom col">
+    <div class="trainbox">
+      <label>Tracking method</label>
+      <div class="seg" id="seg">
+        <button data-m="hand" class="on">🖐 Hand <small>best</small></button>
+        <button data-m="motion">〰 Motion</button>
+        <button data-m="color">🎯 Smart Detect</button>
+      </div>
+      <ul class="checks" id="checks">
+        <li id="ckSee"><b>○</b> I can see you</li>
+        <li id="ckWave"><b>○</b> Wave up and down: <span id="ckN">0</span>/3 beats</li>
+      </ul>
+      <button id="calGo" class="cta" disabled>Waiting for tracking…</button>
+    </div>
+    <button id="calSkip" class="ghost">Use finger / mouse instead</button>
+  </div>
+</section>
+
+<section id="pick" class="screen">
+  <div class="card wide">
+    <div class="voice"><span class="dot"></span><span id="said">…</span><button id="mic" class="mini" title="Answer by voice">🎤</button></div>
+    <div id="step1">
+      <h2>What shall we play?</h2>
+      <div id="genres" class="grid"></div>
+    </div>
+    <div id="step2" hidden>
+      <h2>Set the mood</h2>
+      <div id="moods" class="grid small"></div>
+    </div>
+    <div id="step3" hidden>
+      <h2>Make it yours</h2>
+      <input id="styleText" class="field" type="text" placeholder="Describe the style: e.g. dreamy synthwave with strings" autocomplete="off">
+      <div id="lyricMode" class="grid small"></div>
+      <textarea id="lyricText" class="field" rows="3" placeholder="Type your lyrics or a theme…" hidden></textarea>
+      <button id="goPlay" class="cta" style="margin-top:16px">Raise the baton</button>
+    </div>
+  </div>
+</section>
+
+<section id="train" class="screen">
+  <div class="scanframe"><i></i><i></i><i></i><i></i></div>
+  <div class="banner"><div id="trainMsg">Point the camera at yourself and your conducting tool.</div></div>
+  <div class="bottom col">
+    <div class="trainbox" id="trainBox">
+      <label>What are you conducting with?</label>
+      <input id="objName" type="text" placeholder="pencil, chopstick, pen, wand…" autocomplete="off" list="objs">
+      <datalist id="objs"><option value="pencil"><option value="pen"><option value="chopstick"><option value="wand"><option value="drumstick"><option value="spoon"><option value="paintbrush"></datalist>
+      <div id="objTips" class="tips">Tip: for best tracking use something that contrasts with your background, or put a bright piece of tape on the tip.</div>
+      <button id="startTrack" class="cta">Start tracking</button>
+    </div>
+    <button id="skipTrain" class="ghost">Use finger / mouse instead</button>
+  </div>
+</section>
+
+<section id="play" class="screen">
+  <div class="hud top">
+    <div class="pill"><i id="trk" class="trk"></i><span id="genreLabel">—</span></div>
+    <div class="meters">
+      <div class="meter"><label>Tempo</label><b id="mTempo">—</b></div>
+      <div class="meter"><label>Power</label><i><u id="mDyn"></u></i></div>
+    </div>
+    <div class="btns">
+      <button id="bRec" class="mini" title="Record your performance">⏺</button>
+      <button id="bGuide" class="mini" title="Toggle beat guide">♩</button>
+      <button id="bVoice" class="mini" title="Voice coach">🗣</button>
+      <button id="bRetrain" class="mini" title="Re-pick baton">🎯</button>
+      <button id="bStyle" class="mini" title="Change music">🎼</button>
+    </div>
+  </div>
+  <div class="hud hint" id="hint">Raise your baton and give a downbeat…</div>
+  <div class="hud layers"><span data-l="harmony">Strings</span><span data-l="melody">Melody</span><span data-l="rhythm">Rhythm</span></div>
+  <div class="hud sens"><label>Sensitivity</label><input id="sens" type="range" min="0" max="1" step="0.01" value="0.4"></div>
+</section>
+
+<div id="toast"></div>
+<button id="back" class="backbtn" hidden>← Back</button>
+<video id="cam" playsinline muted autoplay></video>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

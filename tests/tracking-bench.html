@@ -1,0 +1,43 @@
+<!doctype html><base href="/"><canvas id=v width=1280 height=720></canvas><script type=module>
+import { ObjectSegmenter, PointTracker } from '/src/tracking.js';
+const cv=document.getElementById('v'), c=cv.getContext('2d'); cv.videoWidth=1280; cv.videoHeight=720;
+let seed=7; const rnd=()=> (seed=(seed*16807)%2147483647)/2147483647;
+const bg=document.createElement('canvas'); bg.width=1280; bg.height=720; { const b=bg.getContext('2d'); b.fillStyle='#d8d2c4'; b.fillRect(0,0,1280,720); b.fillStyle='#8a6d4b'; b.fillRect(0,500,1280,220); for(let i=0;i<40;i++){ b.fillStyle=`hsl(${rnd()*360},25%,${40+rnd()*35}%)`; b.fillRect(rnd()*1280,rnd()*720,30+rnd()*60,30+rnd()*60); }
+  // distractors: yellow-ish things on the wall
+  b.fillStyle='#f0c840'; b.fillRect(200,100,120,30); b.fillStyle='#e9cf55'; b.fillRect(900,420,16,160); }
+function pencil(px,py,ang,sc,col='#f2c230'){ c.save(); c.translate(px,py); c.rotate(ang); c.scale(sc,sc);
+  c.fillStyle=col; c.fillRect(-160,-9,300,18); c.fillStyle='#e9d3b0'; c.beginPath(); c.moveTo(140,-9); c.lineTo(175,0); c.lineTo(140,9); c.fill(); c.fillStyle='#222'; c.beginPath(); c.moveTo(166,-3); c.lineTo(175,0); c.lineTo(166,3); c.fill(); c.fillStyle='#e56'; c.fillRect(-175,-9,15,18); c.restore(); }
+function hand(px,py,ang,sc){ c.fillStyle='#d9a98a'; c.beginPath(); c.arc(px-60*sc*Math.cos(ang),py-60*sc*Math.sin(ang),38*sc,0,6.3); c.fill(); }
+let FX=null; function frame(px,py,ang,sc,extra){ c.filter=FX?FX():'none'; c.drawImage(bg,0,0); hand(px,py,ang,sc); pencil(px,py,ang,sc); if(extra) pencil(extra.x,extra.y,extra.a,1,'#f2c230'); c.filter='none'; if(FX){ const im=c.getImageData(0,0,1280,720),q=im.data; for(let k=0;k<q.length;k+=4){const n=(rnd()-0.5)*24; q[k]+=n;q[k+1]+=n;q[k+2]+=n;} c.putImageData(im,0,0);} }
+const tipOf=(px,py,ang,sc)=>({x:1280-(px+Math.cos(ang)*175*sc), y:py+Math.sin(ang)*175*sc});
+const s=new ObjectSegmenter(); await s.init(); const out=[];
+if (location.hash==='#fastseg') { const _sg=s.segment.bind(s); s.segment=(...a)=>{ const r=_sg(...a); s.lastMs=20; return r; }; }
+let TT=0,TN=0;
+async function run(label,start,steps,fn,opts={}){ TT=0; TN=0; frame(...start); const P=new PointTracker(); P.grab(cv); const t0=tipOf(...start);
+  const o=s.segment(cv,t0.x/1280,t0.y/720,320,240); if(!o){out.push(label+': segmentation failed'); return;} P.lastHint=opts.hand===false?null:{span:28*start[3],ang:Math.PI-start[2]}; P.train(t0.x/1280,t0.y/720,o);
+  let e=[],f=0,big=0,T=performance.now(); for(let i=0;i<steps;i++){ const st=fn(i); if(opts.forgetAt===i) P.forget();
+    frame(st.px,st.py,st.ang,st.sc,st.extra); P.grab(cv); const tp=tipOf(st.px,st.py,st.ang,st.sc);
+    const hint=opts.hand===false?null:{x:(1280-(st.px-60*st.sc*Math.cos(st.ang)))/4,y:(st.py-60*st.sc*Math.sin(st.ang))/3,r:Math.max(40,100*st.sc),span:28*st.sc,ang:Math.PI-st.ang+(opts.angNoise?(Math.sin(i*1.7)*opts.angNoise):0)};
+    const ev0=(P.ev||[]).length; const _t=performance.now(); const p=P.step(cv,s,hint); TT+=performance.now()-_t; TN++; if(p){f++; const er=Math.hypot((p.x*1280-tp.x)/4,(p.y*720-tp.y)/3); e.push(er); if(er>25)big++; 
+ if(opts.trace) out.push(`  f${i} err ${er.toFixed(1)} s ${P.score.toFixed(1)} 2nd ${P.second.toFixed(1)} tpl ${P.pw}x${P.ph} ${(P.ev||[]).slice(ev0).join(',')}`);} else if(opts.trace) out.push(`  f${i} LOST why ${P.why}`); }
+  e.sort((a,b)=>a-b); out.push(`${((performance.now()-T)/steps).toFixed(0)}ms/f (tracker ${(TT/TN).toFixed(1)}ms) ${label}: found ${f}/${steps}, median ${e.length?e[e.length>>1].toFixed(1):'-'}, p90 ${e.length?e[Math.floor(e.length*.9)].toFixed(1):'-'}, frames >25px off: ${big}`); }
+const W1=i=>({px:640+240*Math.sin(i/6),py:360+120*Math.sin(i/3),ang:-0.6,sc:1});
+const _a=PointTracker.prototype._adopt; PointTracker.prototype._adopt=function(w){ (this.ev=this.ev||[]).push('adopt'+w.v.pw+'x'+w.v.ph); return _a.call(this,w); };
+const _r=PointTracker.prototype._refresh; PointTracker.prototype._refresh=function(...a){ const ok=_r.apply(this,a); (this.ev=this.ev||[]).push('refresh:'+ok); return ok; };
+await run('wave (hand hint)',[640,360,-0.6,1],70,W1);
+await run('wave (no hand)',[640,360,-0.6,1],70,W1,{hand:false});
+await run('wave past distractors',[640,360,-0.6,1],90,i=>({px:640+400*Math.sin(i/9),py:300+60*Math.sin(i/4),ang:-0.6,sc:1}));
+await run('rotate only',[640,360,-0.6,1],60,i=>({px:640,py:360,ang:-0.6+0.6*Math.sin(i/9),sc:1}));
+await run('rotate+move',[640,360,-0.6,1],90,i=>({px:640+150*Math.sin(i/7),py:360+80*Math.sin(i/4),ang:-0.6+0.6*Math.sin(i/9),sc:1}));
+await run('put down + pick up (forget at 20)',[640,360,-0.6,1],70,i=>({px:640+i*2,py:360,ang:-0.6,sc:1}),{forgetAt:20});
+await run('2nd identical pencil appears',[640,360,-0.6,1],60,i=>({px:640+100*Math.sin(i/6),py:360,ang:-0.6,sc:1,extra:{x:300+i*8,y:560-i*4,a:-0.6}}));
+await run('step back to 0.5 (hand)',[640,360,-0.6,1],70,i=>({px:640+80*Math.sin(i/6),py:360,ang:-0.6,sc:1-i*0.007}));
+await run('step back to 0.5 (no hand)',[640,360,-0.6,1],70,i=>({px:640+80*Math.sin(i/6),py:360,ang:-0.6,sc:1-i*0.007}),{hand:false});
+await run('everything (hand)',[640,360,-0.6,1],120,i=>({px:640+200*Math.sin(i/7),py:360+90*Math.sin(i/4),ang:-0.6+0.5*Math.sin(i/11),sc:1-0.3*Math.sin(i/20)}));
+await run('everything, noisy hand angle (±0.15)',[640,360,-0.6,1],120,i=>({px:640+200*Math.sin(i/7),py:360+90*Math.sin(i/4),ang:-0.6+0.5*Math.sin(i/11),sc:1-0.3*Math.sin(i/20)}),{angNoise:0.15});
+await run('rotate+move (no hand)',[640,360,-0.6,1],90,i=>({px:640+150*Math.sin(i/7),py:360+80*Math.sin(i/4),ang:-0.6+0.6*Math.sin(i/9),sc:1}),{hand:false});
+let fi=0; FX=()=>`blur(${1+Math.abs(Math.sin(fi/5))*1.5}px) brightness(${0.85+0.3*Math.abs(Math.sin((fi++)/40))})`;
+await run('everything + camera noise + blur + light change',[640,360,-0.6,1],120,i=>({px:640+200*Math.sin(i/7),py:360+90*Math.sin(i/4),ang:-0.6+0.5*Math.sin(i/11),sc:1-0.3*Math.sin(i/20)}),{angNoise:0.1});
+FX=null;
+document.title='DONE'; window.OUT=out;
+</script>
