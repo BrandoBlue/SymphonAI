@@ -15,6 +15,7 @@
    LAYOUT: stage fills the screen; controls along the top edge, tempo + dynamics on the bottom edge, safe-area padded */
 :root{--bg:#1d0b17;--ink:#f6ead8;--dim:#c9b6a6;--teal:#2fe6c8;--coral:#ff6f59;--glass:rgba(29,11,23,.72)}
 *{box-sizing:border-box;min-width:0}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
 #stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:manipulation}
 video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
@@ -98,7 +99,6 @@ input[type=range]{accent-color:var(--teal);width:90px}
 
 <script type="module">
 {
-const VER='0.10.14';
 const $=id=>document.getElementById(id);
 const cv=$('stage'),cx=cv.getContext('2d'),video=$('cam');
 const S={mode:'conduct',facing:'user',key:7,sens:1,landmarker:null,stream:null,lastVideoT:-1,
@@ -280,13 +280,16 @@ function draw(t){
 
 function loop(){
   const t=performance.now();
-  if(S.landmarker&&video.readyState>=2&&video.currentTime!==S.lastVideoT){
-    S.lastVideoT=video.currentTime;
-    const r=S.landmarker.detectForVideo(video,t);
-    S.hands=r.landmarks||[];
-    handleHands(t);
-  }
-  draw(t);requestAnimationFrame(loop);
+  try{
+    if(S.landmarker&&video.readyState>=2&&video.videoWidth&&video.currentTime!==S.lastVideoT){
+      S.lastVideoT=video.currentTime;
+      const r=S.landmarker.detectForVideo(video,t);
+      S.hands=r.landmarks||[];
+      handleHands(t);
+    }
+    draw(t);
+  }catch(e){console.error(e);if(!S.errShown){S.errShown=1;setHint('Tracking error: '+(e.message||e))}}
+  requestAnimationFrame(loop);
 }
 function resize(){const d=devicePixelRatio||1;cv.width=innerWidth*d;cv.height=innerHeight*d}
 addEventListener('resize',resize);resize();
@@ -305,11 +308,15 @@ $('go').onclick=async()=>{
     initAudio();await AC.resume();
     status('Opening camera…');await startCam();
     status('Loading hand tracker (first time takes a few seconds)…');
-    const V=await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VER}/vision_bundle.mjs`);
-    const fs=await V.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VER}/wasm`);
-    const opts=d=>({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.6,minTrackingConfidence:.5});
-    try{S.landmarker=await V.HandLandmarker.createFromOptions(fs,opts('GPU'))}
-    catch{S.landmarker=await V.HandLandmarker.createFromOptions(fs,opts('CPU'))}
+    // tracker files are served from this site (vendor/mediapipe), no outside CDN needed
+    const base=new URL('vendor/mediapipe/',location.href).href;
+    const V=await import(base+'vision_bundle.mjs');
+    const fs=await V.FilesetResolver.forVisionTasks(base+'wasm');
+    const opts=d=>({baseOptions:{modelAssetPath:base+'hand_landmarker.task',delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.6,minTrackingConfidence:.5});
+    const timeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('tracker took too long to start')),ms))]);
+    try{S.landmarker=await timeout(V.HandLandmarker.createFromOptions(fs,opts('GPU')),15000);S.delegate='GPU'}
+    catch(e){console.warn('GPU tracker failed, using CPU',e);status('Switching to CPU tracking…');
+      S.landmarker=await timeout(V.HandLandmarker.createFromOptions(fs,opts('CPU')),30000);S.delegate='CPU'}
     $('intro').hidden=true;$('top').hidden=false;$('bottom').hidden=false;
     setHint('Raise your hand and flick down to start');
     try{await navigator.wakeLock?.request('screen')}catch{}
