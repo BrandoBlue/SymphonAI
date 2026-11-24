@@ -134,16 +134,19 @@ $('#objName').addEventListener('input', (e) => {
 $('#startTrack').onclick = () => startCalib();
 canvas.addEventListener('pointerdown', (e) => {
   S.pointer.down = true; setPointer(e);
-  if (S.screen === 'calib' && S.method === 'color' && S.arming) {
-    const n = toNorm(e.clientX, e.clientY);
-    const tx = Math.min(1, Math.max(0, n.x)), ty = Math.min(1, Math.max(0, n.y));
-    point.grab(cam); const obj = seg.ready ? seg.segment(cam, tx, ty, point.W, point.H) : null; point.train(tx, ty, obj);
-    S.segOk = !!obj; toast(obj ? 'Smart Tool Detection found your whole ' + obj_() + ' (green). Now wave it.' : 'Locked on the tapped spot. Wave it.', 4000);
-    point.setSensitivity(+$('#sens').value);
-    S.arming = false; CAL.reset();
-    say('Learned it. Now wave it up and down.');
-  }
+  if (S.screen === 'calib' && S.method === 'color' && S.arming) { lockTip(e); S.arming = false; CAL.reset(); say('Learned it. Now wave it up and down.'); }
+  else if (S.screen === 'play' && S.mode === 'camera' && S.method === 'color') { lockTip(e); say('Locked on again.'); } // tap the tip any time to re-lock
 });
+// direction of the hand (wrist -> middle knuckle) in tracker pixels; a held tool turns with it
+function handAngle(lm) { return Math.atan2((lm[9].y - lm[0].y) * point.H, (lm[9].x - lm[0].x) * point.W); }
+function lockTip(e) {
+  const n = toNorm(e.clientX, e.clientY), tx = Math.min(1, Math.max(0, n.x)), ty = Math.min(1, Math.max(0, n.y));
+  point.grab(cam); const o = seg.ready ? seg.segment(cam, tx, ty, point.W, point.H) : null;
+  const hr = hand.ready ? hand.detect(cam) : null; point.lastHint = hr ? { span: hand.spanPx * (point.W / (cam.videoWidth || 1280)), ang: handAngle(hr.lm) } : null;
+  point.train(tx, ty, o);
+  point.setSensitivity(+$('#sens').value); S.segOk = !!o;
+  toast(o ? 'Smart Tool Detection found your whole ' + obj_() + ' (green). Now wave it.' : 'Locked on the tapped spot. Wave it.', 3500);
+}
 addEventListener('pointerup', () => (S.pointer.down = false));
 canvas.addEventListener('pointermove', setPointer);
 function setPointer(e) { S.pointer.x = e.clientX / cw; S.pointer.y = e.clientY / ch; S.pointer.last = performance.now(); }
@@ -196,7 +199,14 @@ function trackFrame(now) {
   let p = null;
   if (S.method === 'hand') { const r = hand.detect(cam); S.hand = r ? r.lm : null; p = r ? { x: r.x, y: r.y } : null; }
   else if (S.method === 'motion') p = motion.step(cam);
-  else { point.grab(cam); p = point.ready ? point.step(cam, seg) : null; }
+  else { // Smart Tool Detection, anchored to the hand the tool is held in
+    point.grab(cam);
+    const hr = hand.ready ? hand.detect(cam) : null; let hint = null;
+    if (hr) { const span = hand.spanPx * (point.W / (cam.videoWidth || 1280)); hint = { x: (hr.x) * point.W, y: hr.y * point.H, r: Math.max(40, span * 3.6), span, ang: handAngle(hr.lm) }; S.hand = hr.lm; } else S.hand = null;
+    p = point.ready ? point.step(cam, seg, hint) : null;
+    S.tool = !!p; S.handOnly = false;
+    if (!p && hr && point.ready) { p = { x: hr.x, y: hr.y }; S.handOnly = true; } // tool not found: keep conducting from the hand
+  }
   S.real = !!p;
   if (p) { S.found = true; S.lastFound = now; S.lastP = p; }
   else if (S.lastP && now - S.lastFound < 450) p = { ...S.lastP }; // ride out brief dropouts
@@ -206,7 +216,7 @@ function trackFrame(now) {
 
 // ---------- play ----------
 function startPlay() {
-  show('play'); S.playStart = performance.now(); conductor.reset();
+  show('play'); S.playStart = performance.now(); conductor.reset(); S.lastP = null; if (S.mode === 'camera' && S.method === 'color' && point.ready) point.forget();
   $('#genreLabel').textContent = `${GENRES[S.genre].icon} ${GENRES[S.genre].name} · ${MODES[S.mood].name}`;
   $('#hint').classList.remove('hide');
   $('#hint').textContent = S.mode === 'camera' ? 'Raise your ' + (S.objName || 'baton') + ' and give a downbeat…' : 'Drag your finger like a baton — down for each beat…';
@@ -275,6 +285,7 @@ function conduct(now, dt) {
     $('#hint').classList.add('hide');
     coach('first', 'Beautiful downbeat. Keep it flowing.', 0);
   }
+  $('#trk').className = 'trk ' + (S.mode === 'pointer' ? 'on' : S.found ? (S.handOnly ? 'hand' : 'on') : '');
   band.update(dt);
   $('#mTempo').textContent = Math.round(band.bpm);
   $('#mDyn').style.width = Math.round(band.dynamics * 100) + '%';
@@ -282,6 +293,8 @@ function conduct(now, dt) {
   // coaching + idle hint
   const idle = now - S.lastMove > 3500;
   if (idle && S.lastMove) { $('#hint').classList.remove('hide'); $('#hint').textContent = 'Raise your baton — I\'m waiting for you…'; }
+  if (S.mode === 'camera' && S.method === 'color' && S.handOnly && S.found && now - S.playStart > 2500 && !S.hintedTap) { S.hintedTap = true; toast('Following your hand. Tap the tip of your ' + obj() + ' any time to re-lock it.', 5000); }
+  if (S.found && $('#hint').textContent.startsWith('I lost')) $('#hint').classList.add('hide');
   if (S.mode === 'camera' && !S.found && now - Math.max(S.lastFound, S.playStart) > 2500) { $('#hint').classList.remove('hide'); $('#hint').textContent = 'I lost track of you. Hold your ' + obj() + ' in view, or tap 🎯 to recalibrate.'; }
   coach('big', 'Bigger movements make it louder. Smaller, softer.', 14000);
   coach('sway', 'Sway toward the left for strings, the middle for melody, the right for rhythm.', 26000);
@@ -343,6 +356,7 @@ function drawFx(dt, now) {
   S.parts = S.parts.filter((p) => p.life > 0);
   for (const p of S.parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.97; p.vy = p.vy * 0.97 + 60 * dt; p.life -= dt * 0.9;
     g.fillStyle = `hsla(${p.hue},95%,65%,${Math.max(0, p.life)})`; g.beginPath(); g.arc(p.x, p.y, 2 + p.life * 3, 0, 6.283); g.fill(); }
+  if (DEBUG && (S.screen === 'play' || S.screen === 'calib')) drawDebug();
   if (S.screen === 'play' && S.guide) drawGuide(now);
 }
 // 4/4 beat-pattern guide that follows the band's own clock so you can conduct in time with it
@@ -364,6 +378,12 @@ function drawGuide(now) {
     g.fillStyle = '#ff5d8f'; g.shadowColor = '#ff5d8f'; g.shadowBlur = 18; g.beginPath(); g.arc(x, y, 7, 0, 6.283); g.fill(); g.shadowBlur = 0;
   }
   g.restore();
+}
+const DEBUG = new URLSearchParams(location.search).has('debug');
+function drawDebug() {
+  g.save(); g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(8, 70, 250, 112); g.fillStyle = '#9f9'; g.font = '12px monospace';
+  const L = [`method ${S.method} found ${S.found} real ${S.real} handOnly ${S.handOnly}`, `tool ${S.tool} hand ${!!S.hand} ready ${point.ready}`, `score ${point.score?.toFixed?.(1)} 2nd ${point.second?.toFixed?.(1)} thr ${point.thr.toFixed(0)}`, `lost ${point.lost} reacq ${point.reacq} confirm ${point.confirm}`, `why ${point.why || '-'}`, `tpl ${point.pw}x${point.ph} seg ${point.segmented}`];
+  L.forEach((s, i) => g.fillText(s, 14, 88 + i * 16)); g.restore();
 }
 const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 function drawHand() {

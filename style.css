@@ -82,3 +82,4 @@ textarea.field{resize:none;margin-top:12px}
 .cta:disabled{opacity:.45;box-shadow:none}
 #calMsg.good{color:#8dffb8}
 .banner{top:max(72px,calc(env(safe-area-inset-top) + 64px))}
+.trk{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff5d8f;margin-right:8px;box-shadow:0 0 10px #ff5d8f;vertical-align:middle}.trk.on{background:#5cf29a;box-shadow:0 0 10px #5cf29a}.trk.hand{background:#f5c76b;box-shadow:0 0 10px #f5c76b}
