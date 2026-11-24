@@ -4,7 +4,7 @@ Orchestrate from vision.
 Conduct a little band with your hand using your phone's camera. Hand tracking runs fully in the browser with [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker); all sound is synthesized live with the Web Audio API. No install, no server, one file.
 
 ## Play it
-Open the GitHub Pages link on your phone: `https://brandoblue.github.io/SymphonAI/`, tap **Raise the baton**, and allow the camera. Prop the phone up and stand 4–6 ft back.
+Open the GitHub Pages link on your phone: `https://brandoblue.github.io/SymphonAI/`, tap **Raise the baton**, and allow the camera. Prop the phone up and stand 2–6 ft back with your palm facing the camera.
 
 > The camera only works over `https://` (or `localhost`), so opening `index.html` straight from your files won't work.
 
@@ -15,7 +15,6 @@ Open the GitHub Pages link on your phone: `https://brandoblue.github.io/SymphonA
 | Hand high / low | Louder (*ff*) / softer (*pp*). Louder brings in more instruments |
 | Hand left / right | Darker / brighter sound |
 | Fist | Cut the band off |
-| Second hand | Controls volume while the first one conducts |
 | Tap screen | Backup beat |
 | **Theremin mode**: pinch | Play a note; hand height picks the pitch (always in key) |
 

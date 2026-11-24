@@ -37,6 +37,8 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--teal);outline-
 #beats{display:flex;gap:8px;margin-top:8px}
 #beats i{width:12px;height:12px;border-radius:50%;background:rgba(246,234,216,.25);transition:background .08s}
 #beats i.on{background:var(--coral)}
+#chip{position:fixed;left:50%;transform:translateX(-50%);top:calc(max(12px,env(safe-area-inset-top)) + 58px);font:600 13px Inter,sans-serif;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.5);color:var(--dim);pointer-events:none;white-space:nowrap}
+#chip.ok{color:var(--teal)}
 #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:var(--dim);font-size:15px;pointer-events:none;max-width:80vw;text-shadow:0 1px 6px #000}
 #intro{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 10%,#5a1d3c 0%,var(--bg) 65%);overflow:auto}
 .card{max-width:460px;width:100%}
@@ -80,11 +82,12 @@ input[type=range]{accent-color:var(--teal);width:90px}
   <div id="dyn">mf</div>
 </div>
 <div id="hint" hidden></div>
+<div id="chip" hidden></div>
 
 <div id="intro">
   <div class="card">
     <h1>SymphonAI</h1>
-    <p class="lede">Prop your phone up, step back so your hand is in frame, and lead the band.</p>
+    <p class="lede">Prop your phone up, step back 2–6 ft with your palm toward the camera, and lead the band.</p>
     <dl>
       <dt>Beat</dt><dd>Flick your hand down and bounce. Each bounce is a beat; your speed sets the tempo.</dd>
       <dt>Height</dt><dd>Hand high for <i>forte</i>, low for <i>piano</i>. Louder brings in more instruments.</dd>
@@ -207,7 +210,7 @@ function handleHands(t){
     if(S.th.on){thGain.gain.setTargetAtTime(0,AC.currentTime,.05);S.th.on=false}
     S.prevY=null;S.trail=[];return}
   S.lostAt=0;
-  const h=H[0],ctl=H[1]||H[0];
+  const h=H[0],ctl=h;
   // brightness from side to side (in screen terms, so mirrored for selfie cam)
   const sx=toScreen(h[9]).x/cv.width;S.bright+=(sx-S.bright)*.15;
   S.dyn+=((1-Math.min(1,Math.max(0,(toScreen(ctl[9]).y/cv.height-.12)/.76)))-S.dyn)*.12;
@@ -278,13 +281,38 @@ function draw(t){
     cx.beginPath();cx.arc(r.x,r.y,(20+k*(r.down?120:70))*dpr,0,7);cx.stroke()}
 }
 
+
+// Hand finder: the model shrinks each image to ~200px, so a hand across the room is too small to see.
+// We crop around where the hand was, try the full frame, and otherwise scan zoomed-in windows.
+const crop=document.createElement('canvas'),ccx=crop.getContext('2d');
+const T={pos:null,span:0,misses:0,scan:0};
+function tryCrop(x,y,w,h){
+  const vw=video.videoWidth,vh=video.videoHeight;
+  w=Math.min(w,vw);h=Math.min(h,vh);x=Math.max(0,Math.min(vw-w,x));y=Math.max(0,Math.min(vh-h,y));
+  const k=320/Math.max(w,h);crop.width=Math.round(w*k);crop.height=Math.round(h*k);
+  ccx.drawImage(video,x,y,w,h,0,0,crop.width,crop.height);
+  const r=S.landmarker.detect(crop),lm=r.landmarks&&r.landmarks[0];
+  return lm?lm.map(p=>({x:(x+p.x*w)/vw,y:(y+p.y*h)/vh})):null;
+}
+function findHand(){
+  const vw=video.videoWidth,vh=video.videoHeight;let lm=null;
+  if(T.pos){const side=Math.max(.45*vh,Math.min(vh,T.span*5));lm=tryCrop(T.pos.x*vw-side/2,T.pos.y*vh-side/2,side,side)}
+  if(!lm){const k=T.scan++%7; // alternate: full frame, then six zoomed windows
+    if(k===0)lm=tryCrop(0,0,vw,vh);
+    else{const side=.5*vh,i=k-1;lm=tryCrop([.25,.5,.75][i%3]*vw-side/2,[.35,.65][(i/3)|0]*vh-side/2,side,side)}}
+  if(!lm){if(++T.misses>3)T.pos=null;return null}
+  T.misses=0;T.span=Math.hypot((lm[9].x-lm[0].x)*vw,(lm[9].y-lm[0].y)*vh);
+  T.pos={x:(lm[0].x+lm[9].x)/2,y:(lm[0].y+lm[9].y)/2};
+  return lm;
+}
 function loop(){
   const t=performance.now();
   try{
     if(S.landmarker&&video.readyState>=2&&video.videoWidth&&video.currentTime!==S.lastVideoT){
       S.lastVideoT=video.currentTime;
-      const r=S.landmarker.detectForVideo(video,t);
-      S.hands=r.landmarks||[];
+      const lm=findHand();
+      S.hands=lm?[lm]:[];
+      S.fc=(S.fc||0)+1;
       handleHands(t);
     }
     draw(t);
@@ -312,12 +340,19 @@ $('go').onclick=async()=>{
     const base=new URL('vendor/mediapipe/',location.href).href;
     const V=await import(base+'vision_bundle.mjs');
     const fs=await V.FilesetResolver.forVisionTasks(base+'wasm');
-    const opts=d=>({baseOptions:{modelAssetPath:base+'hand_landmarker.task',delegate:d},runningMode:'VIDEO',numHands:2,minHandDetectionConfidence:.6,minTrackingConfidence:.5});
+    const opts=d=>({baseOptions:{modelAssetPath:base+'hand_landmarker.task',delegate:d},runningMode:'IMAGE',numHands:1,minHandDetectionConfidence:.25,minHandPresenceConfidence:.25,minTrackingConfidence:.25});
     const timeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('tracker took too long to start')),ms))]);
-    try{S.landmarker=await timeout(V.HandLandmarker.createFromOptions(fs,opts('GPU')),15000);S.delegate='GPU'}
-    catch(e){console.warn('GPU tracker failed, using CPU',e);status('Switching to CPU tracking…');
-      S.landmarker=await timeout(V.HandLandmarker.createFromOptions(fs,opts('CPU')),30000);S.delegate='CPU'}
-    $('intro').hidden=true;$('top').hidden=false;$('bottom').hidden=false;
+    // time a few detections and keep whichever engine is faster on this phone
+    const probe=document.createElement('canvas');probe.width=320;probe.height=180;probe.getContext('2d').fillRect(0,0,320,180);
+    const speed=l=>{l.detect(probe);const t0=performance.now();for(let i=0;i<4;i++)l.detect(probe);return (performance.now()-t0)/4};
+    let gpu=null,cpu=null,gms=1e9,cms=1e9;
+    try{gpu=await timeout(V.HandLandmarker.createFromOptions(fs,opts('GPU')),15000);gms=speed(gpu)}catch(e){console.warn('GPU tracker failed',e)}
+    if(gms>25){status('Checking which tracker is faster…');
+      try{cpu=await timeout(V.HandLandmarker.createFromOptions(fs,opts('CPU')),30000);cms=speed(cpu)}catch(e){console.warn('CPU tracker failed',e)}}
+    if(!gpu&&!cpu)throw new Error('hand tracker could not start on this device');
+    if(cms<gms){S.landmarker=cpu;S.delegate='CPU';gpu&&gpu.close()}else{S.landmarker=gpu;S.delegate='GPU';cpu&&cpu.close()}
+    S.ms=Math.round(Math.min(gms,cms));
+    $('intro').hidden=true;$('chip').hidden=false;$('top').hidden=false;$('bottom').hidden=false;
     setHint('Raise your hand and flick down to start');
     try{await navigator.wakeLock?.request('screen')}catch{}
     loop();
@@ -336,6 +371,8 @@ $('mTheremin').onclick=()=>setMode('theremin');
 $('key').onchange=e=>S.key=+e.target.value;
 $('sens').oninput=e=>S.sens=+e.target.value;
 $('flip').onclick=async()=>{S.facing=S.facing==='user'?'environment':'user';try{await startCam()}catch(e){setHint('Could not switch camera')}};
+setInterval(()=>{if(!S.landmarker)return;const fps=S.fc||0;S.fc=0;const ok=S.hands.length>0;
+  $('chip').className=ok?'ok':'';$('chip').textContent=(ok?'Hand found':'Looking for your hand…')+' · '+fps+' fps · '+S.delegate+' '+S.ms+'ms'},1000);
 cv.addEventListener('pointerdown',()=>{if(AC&&S.mode==='conduct')gestureBeat()}); // tap the screen as a backup beat
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMusic()});
 }
