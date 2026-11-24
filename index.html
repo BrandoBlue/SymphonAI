@@ -7,383 +7,78 @@
 <title>SymphonAI</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,800&family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<style>
-/* VOICE: a concert stage at night, playful but focused, you are the conductor
-   IDEA: the podium view, your camera is the orchestra looking back at you
-   PICTURE: full-screen live camera, a glowing baton trail on your fingertip, beat rings on each downbeat
-   COLOUR and TYPE: velvet plum ground, warm cream ink, teal baton, coral beat; Fraunces bold italic for score markings (mf, ff), Inter for controls
-   LAYOUT: stage fills the screen; controls along the top edge, tempo + dynamics on the bottom edge, safe-area padded */
-:root{--bg:#1d0b17;--ink:#f6ead8;--dim:#c9b6a6;--teal:#2fe6c8;--coral:#ff6f59;--glass:rgba(29,11,23,.72)}
-*{box-sizing:border-box;min-width:0}
-[hidden]{display:none!important}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
-#stage{position:fixed;inset:0;z-index:1;width:100%;height:100%;display:block;touch-action:manipulation;background:rgba(29,11,23,.35)}
-video{position:fixed;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
-video.mirror{transform:scaleX(-1)}
-.bar{position:fixed;z-index:2;left:0;right:0;display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 12px max(12px,env(safe-area-inset-left));pointer-events:none}
-.bar>*{pointer-events:auto}
-#top{top:0;background:linear-gradient(var(--glass),transparent)}
-#bottom{bottom:0;top:auto;align-items:flex-end;padding-bottom:max(14px,env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--glass))}
-.seg{display:flex;background:rgba(0,0,0,.35);border:1px solid rgba(246,234,216,.25);border-radius:999px;padding:3px}
-.seg button,.btn,select{font:600 15px Inter,sans-serif;color:var(--ink);background:transparent;border:0;border-radius:999px;min-height:44px;padding:0 16px;cursor:pointer}
-.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
-.btn,select{background:rgba(0,0,0,.35);border:1px solid rgba(246,234,216,.25)}
-select{font-size:16px;appearance:none;padding:0 14px}
-button:focus-visible,select:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
-.tools{display:flex;gap:8px}
-.readout{display:flex;align-items:baseline;gap:14px}
-#bpm{font:600 clamp(44px,11vw,72px)/1 Fraunces,serif;font-variant-numeric:tabular-nums}
-.unit{color:var(--dim);font-size:14px}
-#dyn{font:italic 800 clamp(40px,10vw,64px)/1 Fraunces,serif;color:var(--teal);min-width:2.2em;text-align:right}
-#beats{display:flex;gap:8px;margin-top:8px}
-#beats i{width:12px;height:12px;border-radius:50%;background:rgba(246,234,216,.25);transition:background .08s}
-#beats i.on{background:var(--coral)}
-#chip{position:fixed;z-index:2;left:50%;transform:translateX(-50%);top:calc(max(12px,env(safe-area-inset-top)) + 58px);font:600 13px Inter,sans-serif;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.5);color:var(--dim);pointer-events:none;white-space:nowrap}
-#chip.ok{color:var(--teal)}
-#hint{position:fixed;z-index:2;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;color:var(--dim);font-size:15px;pointer-events:none;max-width:80vw;text-shadow:0 1px 6px #000}
-#intro{position:fixed;z-index:3;inset:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 10%,#5a1d3c 0%,var(--bg) 65%);overflow:auto}
-.card{max-width:460px;width:100%}
-h1{font:italic 800 clamp(40px,12vw,56px)/1.05 Fraunces,serif;margin:0 0 8px;text-wrap:balance}
-.lede{color:var(--dim);margin:0 0 20px}
-dl{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;margin:0 0 24px}
-dt{font:italic 800 18px Fraunces,serif;color:var(--teal);white-space:nowrap}
-dd{margin:0;color:var(--ink)}
-#go{width:100%;min-height:56px;font-size:17px;background:var(--coral);color:#1d0b17;border:0}
-#status{margin-top:14px;color:var(--dim);font-size:14px;min-height:1.5em}
-#status.err{color:var(--coral)}
-.sens{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:13px}
-input[type=range]{accent-color:var(--teal);width:90px}
-@media(max-width:600px){#top{justify-content:center}.sens{display:none}}
-@media(prefers-reduced-motion:reduce){#beats i{transition:none}}
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="stage"></canvas>
 <video id="cam" playsinline muted autoplay></video>
+<canvas id="stage" aria-label="Note highway"></canvas>
 
-<div class="bar" id="top" hidden>
-  <div class="seg" role="group" aria-label="Mode">
-    <button id="mConduct" aria-pressed="true">Conduct</button>
-    <button id="mTheremin" aria-pressed="false">Theremin</button>
-  </div>
+<header class="bar" id="top" hidden>
+  <button class="btn" id="menuBtn">Songs</button>
   <div class="tools">
-    <label class="sens">Sensitivity <input id="sens" type="range" min="0.4" max="1.8" step="0.1" value="1"></label>
-    <select id="key" aria-label="Key">
-      <option value="0">C</option><option value="2">D</option><option value="3">E♭</option><option value="5">F</option><option value="7" selected>G</option><option value="9">A</option><option value="10">B♭</option>
-    </select>
+    <select id="themeSel" aria-label="Sound"></select>
     <button class="btn" id="flip" aria-label="Switch camera">Flip</button>
   </div>
-</div>
-
-<div class="bar" id="bottom" hidden>
-  <div>
-    <div class="readout"><span id="bpm">--</span><span class="unit" id="unit">bpm</span></div>
-    <div id="beats"><i></i><i></i><i></i><i></i></div>
-  </div>
-  <div id="dyn">mf</div>
-</div>
-<div id="hint" hidden></div>
+</header>
 <div id="chip" hidden></div>
+
+<footer class="bar" id="bottom" hidden>
+  <div class="info">
+    <div id="title">Free play</div>
+    <div class="prog"><i id="progBar"></i></div>
+  </div>
+  <div class="scorebox"><div id="score">0</div><div id="combo"></div></div>
+</footer>
+<div id="hint" hidden></div>
+
+<section id="menu" class="sheet" hidden>
+  <div class="card">
+    <h2>Sound</h2>
+    <div class="themes" id="themes"></div>
+    <h2>Songs</h2>
+    <label class="switch"><input type="checkbox" id="guide"> <span>Guide melody: hear the tune softly while you play</span></label>
+    <ul class="songs" id="songs"></ul>
+    <h2>Free play</h2>
+    <p class="note">An open theremin. Every note fits the key, so nothing sounds wrong.</p>
+    <div class="row">
+      <button class="btn primary" id="freeBtn">Start free play</button>
+      <select id="key" aria-label="Key"></select>
+      <label class="switch"><input type="checkbox" id="jam"> <span>Backing band</span></label>
+    </div>
+  </div>
+</section>
+
+<section id="results" class="sheet" hidden>
+  <div class="card result">
+    <h2 id="rTitle"></h2>
+    <div id="rScore">0</div>
+    <div id="rStars" role="img"></div>
+    <p id="rBest" class="note"></p>
+    <dl class="stats">
+      <div><dt>Perfect</dt><dd id="rPerfect"></dd></div>
+      <div><dt>Good</dt><dd id="rGood"></dd></div>
+      <div><dt>Missed</dt><dd id="rMiss"></dd></div>
+      <div><dt>Best combo</dt><dd id="rCombo"></dd></div>
+      <div><dt>Accuracy</dt><dd id="rAcc"></dd></div>
+    </dl>
+    <div class="row"><button class="btn primary" id="again">Play again</button><button class="btn" id="toSongs">Songs</button></div>
+  </div>
+</section>
 
 <div id="intro">
   <div class="card">
     <h1>SymphonAI</h1>
-    <p class="lede">Prop your phone up, step back 2–6 ft with your palm toward the camera, and lead the band.</p>
-    <dl>
-      <dt>Beat</dt><dd>Flick your hand down and bounce. Each bounce is a beat; your speed sets the tempo.</dd>
-      <dt>Height</dt><dd>Hand high for <i>forte</i>, low for <i>piano</i>. Louder brings in more instruments.</dd>
-      <dt>Side</dt><dd>Move left for a darker sound, right for a brighter one.</dd>
-      <dt>Fist</dt><dd>Close your hand to cut the orchestra off.</dd>
-      <dt>Theremin</dt><dd>Pinch thumb and finger to sing; height picks the note.</dd>
+    <p class="lede">Play music with your hand. Prop your phone up, stand 2–6 ft back with your palm toward the camera.</p>
+    <dl class="how">
+      <dt>Pinch</dt><dd>Touch thumb and index finger to play a note. Let go to stop.</dd>
+      <dt>Height</dt><dd>Move your hand up and down to pick the note.</dd>
+      <dt>Songs</dt><dd>Notes scroll toward the line. Be on their row and pinch as they arrive. Hold the long ones.</dd>
+      <dt>Sounds</dt><dd>Theremin, metal guitar, guitar, synthwave or chiptune.</dd>
     </dl>
-    <button class="btn" id="go">Raise the baton</button>
+    <button class="btn primary big" id="go">Start</button>
     <div id="status" role="status"></div>
   </div>
 </div>
-
-<script type="module">
-{
-const $=id=>document.getElementById(id);
-const cv=$('stage'),cx=cv.getContext('2d'),video=$('cam');
-const S={mode:'conduct',facing:'user',key:7,sens:1,landmarker:null,stream:null,lastVideoT:-1,
-  hands:[],trail:[],rings:[],dyn:.5,bright:.5,
-  playing:false,interval:.6,lastBeat:0,beatIdx:0,gestT:[],lastGest:0,
-  vy:0,prevY:null,prevT:0,armed:false,lostAt:0,fistSince:0,
-  th:{on:false,note:null}};
-let AC,master,dynGain,filt,comp,noiseBuf,thOsc,thOsc2,thGain,thFilt;
-
-const status=(m,err)=>{$('status').textContent=m;$('status').className=err?'err':''};
-
-// ---------- audio ----------
-function initAudio(){
-  AC=new (window.AudioContext||window.webkitAudioContext)();
-  comp=AC.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=4;
-  master=AC.createGain();master.gain.value=.9;
-  dynGain=AC.createGain();dynGain.gain.value=.5;
-  filt=AC.createBiquadFilter();filt.type='lowpass';filt.frequency.value=2500;filt.Q.value=.7;
-  filt.connect(dynGain);dynGain.connect(comp);comp.connect(master);master.connect(AC.destination);
-  noiseBuf=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);
-  const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-  thFilt=AC.createBiquadFilter();thFilt.type='lowpass';thFilt.frequency.value=1800;
-  thGain=AC.createGain();thGain.gain.value=0;
-  thOsc=AC.createOscillator();thOsc.type='sawtooth';
-  thOsc2=AC.createOscillator();thOsc2.type='sine';
-  const lfo=AC.createOscillator(),lfoG=AC.createGain();lfo.frequency.value=5.5;lfoG.gain.value=4;
-  lfo.connect(lfoG);lfoG.connect(thOsc.frequency);lfoG.connect(thOsc2.frequency);
-  thOsc.connect(thFilt);thOsc2.connect(thFilt);thFilt.connect(thGain);thGain.connect(comp);
-  thOsc.start();thOsc2.start();lfo.start();
-}
-const mtof=m=>440*2**((m-69)/12);
-const MAJ=[0,2,4,5,7,9,11];
-const deg=(d,base)=>base+S.key+12*Math.floor(d/7)+MAJ[((d%7)+7)%7];
-const PROG=[[0,2,4],[4,6,8],[5,7,9],[3,5,7]]; // I V vi IV
-function tone(f,t,dur,type,g,att=.01,rel=.12,dest=filt){
-  const o=AC.createOscillator(),v=AC.createGain();o.type=type;o.frequency.value=f;
-  v.gain.setValueAtTime(0,t);v.gain.linearRampToValueAtTime(g,t+att);
-  v.gain.setValueAtTime(g,t+Math.max(att,dur-rel));v.gain.linearRampToValueAtTime(0,t+dur);
-  o.connect(v);v.connect(dest);o.start(t);o.stop(t+dur+.05);
-}
-function noise(t,hp,dur,g){
-  const s=AC.createBufferSource(),f=AC.createBiquadFilter(),v=AC.createGain();
-  s.buffer=noiseBuf;f.type='highpass';f.frequency.value=hp;
-  v.gain.setValueAtTime(g,t);v.gain.exponentialRampToValueAtTime(.001,t+dur);
-  s.connect(f);f.connect(v);v.connect(dynGain);s.start(t);s.stop(t+dur+.02);
-}
-function kick(t){
-  const o=AC.createOscillator(),v=AC.createGain();
-  o.frequency.setValueAtTime(140,t);o.frequency.exponentialRampToValueAtTime(42,t+.25);
-  v.gain.setValueAtTime(.9,t);v.gain.exponentialRampToValueAtTime(.001,t+.32);
-  o.connect(v);v.connect(dynGain);o.start(t);o.stop(t+.35);
-}
-function playBeat(t){
-  const b=S.beatIdx%4,bar=Math.floor(S.beatIdx/4),ch=PROG[bar%4],iv=S.interval,d=S.dyn;
-  if(b===0)ch.forEach(n=>tone(mtof(deg(n,60)),t,iv*4,'sawtooth',.06,.25,.5));
-  if(b===0||b===2||d>.45)tone(mtof(deg(ch[0],36)),t,iv*.9,'triangle',.32,.005,.1);
-  const arp=[ch[0],ch[1],ch[2],ch[1]+7,ch[2],ch[1]+7,ch[0]+7,ch[2]];
-  if(d>.25){
-    tone(mtof(deg(arp[(b*2)%8],72)),t,iv*.45,'square',.035,.005,.08);
-    tone(mtof(deg(arp[(b*2+1)%8],72)),t+iv/2,iv*.45,'square',.03,.005,.08);
-  }
-  if(d>.35){noise(t,7000,.05,.12);noise(t+iv/2,7000,.04,.08)}
-  if(d>.6){if(b%2===0)kick(t);else noise(t,1500,.16,.45)}
-  S.beatIdx++;S.lastBeat=t;
-  flashBeat(b);
-}
-function flashBeat(b){
-  const dots=[...$('beats').children];dots.forEach((e,i)=>e.classList.toggle('on',i===b));
-  const h=S.hands[0];if(h){const p=toScreen(h[9]);S.rings.push({x:p.x,y:p.y,t:performance.now(),down:b===0})}
-}
-function startMusic(){S.playing=true;S.beatIdx=0;playBeat(AC.currentTime+.01);setHint('')}
-function stopMusic(){if(!S.playing)return;S.playing=false;
-  dynGain.gain.cancelScheduledValues(AC.currentTime);dynGain.gain.setTargetAtTime(0,AC.currentTime,.08);
-  setTimeout(()=>{if(!S.playing)dynGain.gain.setTargetAtTime(S.dyn,AC.currentTime,.05)},700);
-  [...$('beats').children].forEach(e=>e.classList.remove('on'));
-  setHint('Flick down to start again');
-}
-function gestureBeat(){
-  const now=AC.currentTime,dt=now-S.lastGest;S.lastGest=now;
-  if(dt>.3&&dt<1.25){S.gestT.push(dt);if(S.gestT.length>4)S.gestT.shift();
-    const s=[...S.gestT].sort((a,b)=>a-b);S.interval=s[Math.floor(s.length/2)]}
-  if(!S.playing){startMusic();return}
-  if(now-S.lastBeat>S.interval*.55)playBeat(now+.01);
-}
-setInterval(()=>{ // keeps the band going between your beats
-  if(!AC||!S.playing||S.mode!=='conduct')return;
-  const next=S.lastBeat+S.interval;
-  if(AC.currentTime+.04>=next)playBeat(Math.max(next,AC.currentTime+.005));
-  $('bpm').textContent=Math.round(60/S.interval);
-},15);
-
-// ---------- vision ----------
-const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-let view={sx:0,sy:0,sw:1,sh:1,mirror:true};
-function toScreen(p){
-  const x=(p.x*video.videoWidth-view.sx)/view.sw*cv.width,y=(p.y*video.videoHeight-view.sy)/view.sh*cv.height;
-  return {x:view.mirror?cv.width-x:x,y};
-}
-function isFist(h){const palm=dist(h[0],h[9]);return [8,12,16,20].reduce((s,i)=>s+dist(h[i],h[0]),0)/4/palm<1.15}
-function pinch(h){return dist(h[4],h[8])/dist(h[0],h[9])<.4}
-const MARK=['pp','p','mp','mf','f','ff'];
-
-function handleHands(t){
-  const H=S.hands;
-  if(!H.length){if(!S.lostAt)S.lostAt=t;if(t-S.lostAt>2000&&S.playing)stopMusic();
-    if(S.th.on){thGain.gain.setTargetAtTime(0,AC.currentTime,.05);S.th.on=false}
-    S.prevY=null;S.trail=[];return}
-  S.lostAt=0;
-  const h=H[0],ctl=h;
-  // brightness from side to side (in screen terms, so mirrored for selfie cam)
-  const sx=toScreen(h[9]).x/cv.width;S.bright+=(sx-S.bright)*.15;
-  S.dyn+=((1-Math.min(1,Math.max(0,(toScreen(ctl[9]).y/cv.height-.12)/.76)))-S.dyn)*.12;
-  const tip=toScreen(h[8]);S.trail.push({x:tip.x,y:tip.y,t});if(S.trail.length>24)S.trail.shift();
-  if(AC){
-    filt.frequency.setTargetAtTime(300+S.bright**2*7000,AC.currentTime,.05);
-    if(S.playing)dynGain.gain.setTargetAtTime(.15+S.dyn*.85,AC.currentTime,.06);
-  }
-  $('dyn').textContent=MARK[Math.min(5,Math.floor(S.dyn*6))];
-
-  if(S.mode==='conduct'){
-    if(isFist(h)){if(!S.fistSince)S.fistSince=t;if(t-S.fistSince>250)stopMusic();S.prevY=null;return}
-    S.fistSince=0;
-    const y=h[9].y;
-    if(S.prevY!==null){const dt=(t-S.prevT)/1000;if(dt>0){
-      S.vy=S.vy*.4+((y-S.prevY)/dt)*.6;
-      const arm=.9/S.sens;
-      if(S.vy>arm)S.armed=true;
-      else if(S.armed&&S.vy<.12){S.armed=false;if(AC)gestureBeat()}
-    }}
-    S.prevY=y;S.prevT=t;
-  }else{
-    const p=pinch(h),ny=1-Math.min(1,Math.max(0,tip.y/cv.height));
-    const idx=Math.round(ny*14),note=deg(idx,55);S.th.note=idx;
-    thOsc.frequency.setTargetAtTime(mtof(note),AC.currentTime,.025);
-    thOsc2.frequency.setTargetAtTime(mtof(note-12),AC.currentTime,.025);
-    thFilt.frequency.setTargetAtTime(400+S.bright**2*5000,AC.currentTime,.05);
-    thGain.gain.setTargetAtTime(p?.08+S.dyn*.22:0,AC.currentTime,p?.02:.08);
-    S.th.on=p;
-  }
-}
-
-// ---------- drawing ----------
-const BONES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
-function draw(t){
-  const W=cv.width,H=cv.height;
-  if(video.readyState>=2){
-    const vw=video.videoWidth,vh=video.videoHeight,s=Math.max(W/vw,H/vh);
-    view={sw:W/s,sh:H/s,sx:(vw-W/s)/2,sy:(vh-H/s)/2,mirror:S.facing==='user'};
-  }
-  cx.clearRect(0,0,W,H);
-  const dpr=DPR;
-  if(S.mode==='theremin'){
-    cx.font=`600 ${12*dpr}px Inter`;cx.textAlign='right';
-    for(let i=0;i<=14;i++){const y=H*(1-i/14),on=S.th.note===i;
-      cx.strokeStyle=on?'rgba(47,230,200,.9)':'rgba(246,234,216,.14)';cx.lineWidth=(on?2:1)*dpr;
-      cx.beginPath();cx.moveTo(0,y);cx.lineTo(W,y);cx.stroke();
-      cx.fillStyle=on?'#2fe6c8':'rgba(246,234,216,.5)';cx.fillText(NAMES[deg(i,55)%12],W-10*dpr,y-4*dpr)}
-  }
-  for(const h of S.hands){
-    const P=h.map(toScreen);
-    cx.strokeStyle='rgba(246,234,216,.45)';cx.lineWidth=2*dpr;cx.beginPath();
-    for(const[a,b]of BONES){cx.moveTo(P[a].x,P[a].y);cx.lineTo(P[b].x,P[b].y)}cx.stroke();
-    cx.fillStyle='#f6ead8';for(const p of P){cx.beginPath();cx.arc(p.x,p.y,2.5*dpr,0,7);cx.fill()}
-  }
-  const tr=S.trail;cx.lineCap='round';
-  for(let i=1;i<tr.length;i++){const a=i/tr.length;
-    cx.strokeStyle=`rgba(47,230,200,${a})`;cx.lineWidth=(2+a*9)*dpr;
-    cx.beginPath();cx.moveTo(tr[i-1].x,tr[i-1].y);cx.lineTo(tr[i].x,tr[i].y);cx.stroke()}
-  if(tr.length){const p=tr[tr.length-1];cx.fillStyle=S.th.on&&S.mode==='theremin'?'#ff6f59':'#2fe6c8';
-    cx.shadowColor=cx.fillStyle;cx.shadowBlur=20*dpr;cx.beginPath();cx.arc(p.x,p.y,8*dpr,0,7);cx.fill();cx.shadowBlur=0}
-  if(DEBUG&&crop.width){const w=W*.35,h=w*crop.height/crop.width;cx.drawImage(crop,8*dpr,H-h-110*dpr,w,h);
-    cx.strokeStyle='#ff6f59';cx.lineWidth=2*dpr;cx.strokeRect(8*dpr,H-h-110*dpr,w,h)}
-  S.rings=S.rings.filter(r=>t-r.t<500);
-  for(const r of S.rings){const k=(t-r.t)/500;
-    cx.strokeStyle=`rgba(255,111,89,${1-k})`;cx.lineWidth=(r.down?6:3)*dpr;
-    cx.beginPath();cx.arc(r.x,r.y,(20+k*(r.down?120:70))*dpr,0,7);cx.stroke()}
-}
-
-
-// Hand finder: the model shrinks each image to ~200px, so a hand across the room is too small to see.
-// We crop around where the hand was, try the full frame, and otherwise scan zoomed-in windows.
-const DEBUG=/[?&]debug=1/.test(location.search);
-const crop=document.createElement('canvas'),ccx=crop.getContext('2d');
-const T={pos:null,span:0,misses:0,scan:0};
-function tryCrop(x,y,w,h){
-  const vw=video.videoWidth,vh=video.videoHeight;
-  w=Math.min(w,vw);h=Math.min(h,vh);x=Math.max(0,Math.min(vw-w,x));y=Math.max(0,Math.min(vh-h,y));
-  const k=320/Math.max(w,h);crop.width=Math.round(w*k);crop.height=Math.round(h*k);
-  ccx.drawImage(video,x,y,w,h,0,0,crop.width,crop.height);
-  const r=S.landmarker.detect(crop),lm=r.landmarks&&r.landmarks[0];
-  return lm?lm.map(p=>({x:(x+p.x*w)/vw,y:(y+p.y*h)/vh})):null;
-}
-function findHand(t){
-  const vw=video.videoWidth,vh=video.videoHeight;let lm=null;
-  // 1) fast path: VIDEO mode follows a hand it already found and skips the slow "find a hand" step
-  const r=S.follow.detectForVideo(video,t);lm=r.landmarks&&r.landmarks[0];
-  if(lm){T.far=false}
-  // 2) far-away hand: keep following it with a zoomed crop
-  else if(T.pos&&T.far){const side=Math.max(.45*vh,Math.min(vh,T.span*5));lm=tryCrop(T.pos.x*vw-side/2,T.pos.y*vh-side/2,side,side)}
-  // 3) lost: check one zoomed window every other frame, so a small hand across the room is still found
-  else if((T.skip=!T.skip)){const side=.5*vh,i=T.scan++%6;lm=tryCrop([.25,.5,.75][i%3]*vw-side/2,[.35,.65][(i/3)|0]*vh-side/2,side,side);if(lm)T.far=true}
-  if(!lm){if(++T.misses>3)T.pos=null;return null}
-  T.misses=0;T.span=Math.hypot((lm[9].x-lm[0].x)*vw,(lm[9].y-lm[0].y)*vh);
-  T.pos={x:(lm[0].x+lm[9].x)/2,y:(lm[0].y+lm[9].y)/2};
-  return lm;
-}
-function loop(){
-  const t=performance.now();
-  try{
-    if(S.landmarker&&video.readyState>=2&&video.videoWidth&&video.currentTime!==S.lastVideoT){
-      S.lastVideoT=video.currentTime;
-      const lm=findHand(t);
-      S.hands=lm?[lm]:[];
-      S.fc=(S.fc||0)+1;
-      handleHands(t);
-    }
-    draw(t);
-  }catch(e){console.error(e);if(!S.errShown){S.errShown=1;setHint('Tracking error: '+(e.message||e))}}
-  requestAnimationFrame(loop);
-}
-let DPR=1;function resize(){DPR=Math.min(devicePixelRatio||1,2);cv.width=innerWidth*DPR;cv.height=innerHeight*DPR}
-addEventListener('resize',resize);resize();
-
-// ---------- setup ----------
-async function startCam(){
-  if(S.stream)S.stream.getTracks().forEach(t=>t.stop());
-  S.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:S.facing,width:{ideal:1280},height:{ideal:720}}});
-  video.classList.toggle('mirror',S.facing==='user');
-  video.srcObject=S.stream;await video.play();
-}
-function setHint(m){$('hint').textContent=m;$('hint').hidden=!m}
-$('go').onclick=async()=>{
-  $('go').disabled=true;
-  try{
-    if(!window.isSecureContext||!navigator.mediaDevices)throw new Error('insecure');
-    initAudio();await AC.resume();
-    status('Opening camera…');await startCam();
-    status('Loading hand tracker (first time takes a few seconds)…');
-    // tracker files are served from this site (vendor/mediapipe), no outside CDN needed
-    const base=new URL('vendor/mediapipe/',location.href).href;
-    const V=await import(base+'vision_bundle.mjs');
-    const fs=await V.FilesetResolver.forVisionTasks(base+'wasm');
-    const opts=(d,m='IMAGE')=>({baseOptions:{modelAssetPath:base+'hand_landmarker.task',delegate:d},runningMode:m,numHands:1,minHandDetectionConfidence:.25,minHandPresenceConfidence:.25,minTrackingConfidence:.25});
-    const timeout=(p,ms)=>Promise.race([p,new Promise((_,r)=>setTimeout(()=>r(new Error('tracker took too long to start')),ms))]);
-    // time a few detections and keep whichever engine is faster on this phone
-    const probe=document.createElement('canvas');probe.width=320;probe.height=180;probe.getContext('2d').fillRect(0,0,320,180);
-    const speed=l=>{l.detect(probe);const t0=performance.now();for(let i=0;i<4;i++)l.detect(probe);return (performance.now()-t0)/4};
-    // CPU is the default: it is fast on modern phones and the GPU path finds no hands on some Android GPUs.
-    // Add ?gpu=1 to the URL to try the GPU path instead.
-    const wantGPU=/[?&]gpu=1/.test(location.search);let gms=0,cms=0;
-    const make=async d=>{const l=await timeout(V.HandLandmarker.createFromOptions(fs,opts(d)),30000);return l};
-    try{S.landmarker=await make(wantGPU?'GPU':'CPU');S.delegate=wantGPU?'GPU':'CPU'}
-    catch(e){console.warn(e);status('Trying the other tracker engine…');S.landmarker=await make(wantGPU?'CPU':'GPU');S.delegate=wantGPU?'CPU':'GPU'}
-    S.follow=await timeout(V.HandLandmarker.createFromOptions(fs,opts(S.delegate,'VIDEO')),30000);
-    gms=cms=speed(S.landmarker);
-    S.ms=Math.round(Math.min(gms,cms));
-    $('intro').hidden=true;$('chip').hidden=false;$('top').hidden=false;$('bottom').hidden=false;
-    setHint('Raise your hand and flick down to start');
-    try{await navigator.wakeLock?.request('screen')}catch{}
-    loop();
-  }catch(e){
-    $('go').disabled=false;
-    status(e.message==='insecure'?'The camera needs a secure (https) page. Open this from an https link, not a saved file.'
-      :e.name==='NotAllowedError'?'Camera permission was blocked. Allow it in your browser settings and try again.'
-      :'Could not start: '+(e.message||e),true);
-  }
-};
-function setMode(m){S.mode=m;$('mConduct').setAttribute('aria-pressed',m==='conduct');$('mTheremin').setAttribute('aria-pressed',m==='theremin');
-  if(m==='theremin'){stopMusic();setHint('Pinch to sing · height picks the note');$('bpm').textContent='♪';$('unit').textContent='pinch'}
-  else{thGain.gain.setTargetAtTime(0,AC.currentTime,.05);$('bpm').textContent='--';$('unit').textContent='bpm';setHint('Flick down to start')}}
-$('mConduct').onclick=()=>setMode('conduct');
-$('mTheremin').onclick=()=>setMode('theremin');
-$('key').onchange=e=>S.key=+e.target.value;
-$('sens').oninput=e=>S.sens=+e.target.value;
-$('flip').onclick=async()=>{S.facing=S.facing==='user'?'environment':'user';try{await startCam()}catch(e){setHint('Could not switch camera')}};
-setInterval(()=>{if(!S.landmarker)return;const fps=S.fc||0;S.fc=0;const ok=S.hands.length>0;
-  $('chip').className=ok?'ok':'';$('chip').textContent=(ok?'Hand found':'Looking for your hand…')+' · '+fps+' fps · '+S.delegate+(T.far?' · zoom':'')},1000);
-cv.addEventListener('pointerdown',()=>{if(AC&&S.mode==='conduct')gestureBeat()}); // tap the screen as a backup beat
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopMusic()});
-}
-</script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
